@@ -18,6 +18,7 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Define and Initialise environment variables
+
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,6 +29,10 @@ print("BASE_DIR:", BASE_DIR)
 print("ENV FILE:", BASE_DIR / ".env")
 
 environ.Env.read_env(BASE_DIR / ".env")
+
+
+env = environ.Env()
+
 
 environ.Env.read_env()
 
@@ -71,7 +76,11 @@ INSTALLED_APPS = [
     "allauth.socialaccount.providers.google",
     "crispy_forms",
     "crispy_bootstrap4",
+
     #"django_smart_ratelimit",
+
+    "django_smart_ratelimit",
+
     "django_browser_reload",
 ]
 
@@ -93,7 +102,11 @@ MIDDLEWARE = [
     "django_auto_logout.middleware.auto_logout",
     "allauth.account.middleware.AccountMiddleware",
     'auditlog.middleware.AuditlogMiddleware',
+
     #'django_smart_ratelimit.middleware.RateLimitMiddleware',
+
+    'django_smart_ratelimit.middleware.RateLimitMiddleware',
+
     "django_browser_reload.middleware.BrowserReloadMiddleware",
 ]
 
