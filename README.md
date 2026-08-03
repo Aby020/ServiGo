@@ -97,8 +97,7 @@ Whether managing home services or electric vehicle charging infrastructure, Nano
 
 ---
 
-### ✅ Booking Confirmation
-![Booking Confirmation](screenshots/booking-confirmation.png)
+
 
 ---
 
