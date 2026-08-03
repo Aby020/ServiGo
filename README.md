@@ -80,27 +80,45 @@ Whether managing home services or electric vehicle charging infrastructure, Nano
 - Easy navigation
 - Clean and intuitive booking workflow
 
-## 📸 Application Screenshots
+## 📸 Screenshots
 
 ### 🏠 Home Page
-
-The landing page provides a modern interface where users can explore NanoServ's home maintenance and EV charging services.
-
-<p align="center">
-  <img src="screenshots/home-page.png" width="100%" alt="Home Page">
-</p>
+![Home Page](screenshots/home-page.png)
 
 ---
 
-### 🔧 Home Services
-
-Users can browse available services, compare pricing, and choose the required home maintenance solution.
-
-<p align="center">
-  <img src="screenshots/services-page.png" width="100%" alt="Services Page">
-</p>
+### 🛠️ Services Page
+![Services Page](screenshots/services-page.png)
 
 ---
+
+### 📝 Service Booking Form
+![Booking Form](screenshots/booking-form.png)
+
+---
+
+### ✅ Booking Confirmation
+![Booking Confirmation](screenshots/booking-confirmation.png)
+
+---
+
+### ⚡ EV Charging Station Booking
+![EV Charging](screenshots/ev-charging.png)
+
+---
+
+### 🛡️ Admin Dashboard
+![Admin Dashboard](screenshots/admin-dashboard.png)
+
+---
+
+### 👨‍💼 Staff Dashboard
+![Staff Dashboard](screenshots/staff-dashboard.png)
+
+---
+
+### 🏡 Staff Home Page
+![Staff Home Page](screenshots/staff-home-page.png)
 
 ### 📝 Service Booking
 
@@ -281,7 +299,7 @@ NanoServ
 
 ---
 
-<<<<<<< HEAD
+
 ### 2️⃣ Create a Virtual Environment
 
 #### Windows
@@ -325,7 +343,7 @@ Install dependencies
 pip install -r requirements.txt
 ```
 
-<<<<<<< HEAD
+
 ---
 
 ### 4️⃣ Configure Environment Variables
