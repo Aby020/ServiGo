@@ -25,8 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
 
-print("BASE_DIR:", BASE_DIR)
-print("ENV FILE:", BASE_DIR / ".env")
+
 
 environ.Env.read_env(BASE_DIR / ".env")
 
@@ -105,7 +104,7 @@ MIDDLEWARE = [
 
     #'django_smart_ratelimit.middleware.RateLimitMiddleware',
 
-    'django_smart_ratelimit.middleware.RateLimitMiddleware',
+     #'django_smart_ratelimit.middleware.RateLimitMiddleware',
 
     "django_browser_reload.middleware.BrowserReloadMiddleware",
 ]
