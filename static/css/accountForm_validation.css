@@ -1,0 +1,16 @@
+input:invalid:not(:placeholder-shown){
+    border-color: red;
+}
+input:valid{
+    border-color: rgb(156, 254, 10);
+}
+input:invalid:not(:placeholder-shown) + p{
+    color: red;
+}
+input:valid + p{
+    color: rgb(156, 254, 10);
+}
+input:invalid ~ button[type="submit"] {
+    opacity: .6;
+    pointer-events: none;
+}
