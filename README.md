@@ -526,26 +526,3 @@ Passionate about building scalable backend systems, modern web applications, and
 If you found this project helpful, please consider giving it a ⭐ on GitHub.
 
 Your support motivates me to continue building and improving open-source projects.
-=======
----
-
-## 💡 Future Enhancements
-
-- Online payments
-- Live booking status
-- Ratings and reviews
-- Push notifications
-- Mobile application
-
----
-
-## 👨‍💻 Author
-
-**Abi Thomas**
-
-- GitHub: https://github.com/Aby020
-- LinkedIn: https://www.linkedin.com/in/abi-thomas-39633a200
-
----
-
-⭐ If you found this project useful, consider giving it a star.
