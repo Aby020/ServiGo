@@ -127,18 +127,6 @@ Customers can book their preferred service by providing their contact informatio
   <img src="screenshots/booking-form.png" width="100%" alt="Booking Form">
 </p>
 
----
-
-### ✅ Booking Confirmation
-
-After a successful booking, NanoServ displays a confirmation page and sends an email notification to the customer.
-
-<p align="center">
-  <img src="screenshots/booking-confirmation.png" width="100%" alt="Booking Confirmation">
-</p>
-
----
-
 ### ⚡ EV Charging Station Booking
 
 Browse charging stations, view pricing, and reserve charging slots through a dedicated booking interface.
