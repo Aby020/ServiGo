@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Staff Dashboard - ServiGo{% endblock %}
+
+{% block content %}
+<div class="dashboard-shell">
+    {% include 'dashboard/partials/sidebar.html' with active='overview' %}
+
+    <main class="dashboard-main">
+        <div class="d-lg-none mb-3">
+            <button class="btn btn-primary" id="sidebarToggle" aria-controls="dashboardSidebar" aria-expanded="false">
+                <i class="bi bi-list me-1"></i> Menu
+            </button>
+        </div>
+
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">Staff Dashboard, {{ user.get_short_name|default:'there' }} 🔧</h1>
+                <p class="text-muted mb-0">{{ todays_bookings|length }} booking{{ todays_bookings|length|pluralize }} scheduled today.</p>
+            </div>
+            <a href="{% url 'bookings:staff_list' %}" class="btn btn-primary">
+                <i class="bi bi-list-task me-1"></i> Manage bookings
+            </a>
+        </div>
+
+        <!-- Stats -->
+        <div class="row g-4 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon blue"><i class="bi bi-briefcase"></i></div>
+                    <div>
+                        <div class="stat-value">{{ stats.total_assigned }}</div>
+                        <div class="stat-label">Total assigned</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon green"><i class="bi bi-check2-circle"></i></div>
+                    <div>
+                        <div class="stat-value">{{ stats.completed_assigned }}</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon purple"><i class="bi bi-arrow-repeat"></i></div>
+                    <div>
+                        <div class="stat-value">{{ stats.in_progress_assigned }}</div>
+                        <div class="stat-label">In progress</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon orange"><i class="bi bi-calendar-day"></i></div>
+                    <div>
+                        <div class="stat-value">{{ stats.todays_count }}</div>
+                        <div class="stat-label">Today's jobs</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Today's bookings -->
+            <div class="col-lg-7">
+                <div class="table-card mb-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-calendar-day me-2 text-primary"></i>Today's schedule</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Customer</th>
+                                    <th>Service</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in todays_bookings %}
+                                <tr>
+                                    <td class="fw-bold text-ink">{{ booking.preferred_time|time:"g:i A" }}</td>
+                                    <td>
+                                        <strong class="d-block">{{ booking.customer_name }}</strong>
+                                        <small class="text-muted">{{ booking.location }}</small>
+                                    </td>
+                                    <td>{{ booking.service_name }}</td>
+                                    <td><span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span></td>
+                                    <td class="text-end">
+                                        <a href="{% url 'bookings:staff_detail' booking.pk %}" class="btn btn-sm btn-outline-primary">Manage</a>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">No bookings scheduled today.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Recent activity -->
+                <div class="table-card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-clock-history me-2 text-primary"></i>Recent activity</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>Service</th>
+                                    <th>Requested</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in recent_bookings %}
+                                <tr>
+                                    <td class="fw-semibold">{{ booking.customer_name }}</td>
+                                    <td>{{ booking.service_name }}</td>
+                                    <td class="text-muted">{{ booking.created_at|date:"M j, g:i A" }}</td>
+                                    <td><span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span></td>
+                                    <td class="text-end">
+                                        <a href="{% url 'bookings:staff_detail' booking.pk %}" class="btn btn-sm btn-outline-primary">Manage</a>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">No recent activity.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right column -->
+            <div class="col-lg-5">
+                <!-- Pending assignments -->
+                <div class="table-card mb-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-hourglass-split me-2 text-warning"></i>Pending for you</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <tbody>
+                                {% for booking in pending_bookings %}
+                                <tr>
+                                    <td>
+                                        <strong class="d-block">{{ booking.service_name }}</strong>
+                                        <small class="text-muted">{{ booking.customer_name }} · {{ booking.preferred_date|date:"M j" }} {{ booking.preferred_time|time:"g:i A" }}</small>
+                                    </td>
+                                    <td class="text-end">
+                                        <a href="{% url 'bookings:staff_detail' booking.pk %}" class="btn btn-sm btn-outline-primary">Assign</a>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td class="text-center py-4 text-muted">Nothing pending. You're all caught up! 🎉</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- EV today -->
+                <div class="table-card mb-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-ev-station me-2 text-primary"></i>EV sessions today</h5>
+                        <a href="{% url 'ev_charging:staff_booking_list' %}" class="btn btn-sm btn-light">Manage</a>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <tbody>
+                                {% for booking in todays_ev_bookings %}
+                                <tr>
+                                    <td>
+                                        <strong class="d-block">{{ booking.station.name }}</strong>
+                                        <small class="text-muted">{{ booking.start_time|time:"g:i A" }} – {{ booking.end_time|time:"g:i A" }}</small>
+                                    </td>
+                                    <td><span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span></td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td class="text-center py-4 text-muted">No EV sessions today.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Profile summary -->
+                <div class="content-card">
+                    <h5 class="mb-3"><i class="bi bi-person-badge me-2 text-primary"></i>Your profile</h5>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span class="text-muted">Specialization</span>
+                        <strong>{{ staff_profile.specialization|default:'General' }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span class="text-muted">Experience</span>
+                        <strong>{{ staff_profile.experience_years }} years</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span class="text-muted">Rating</span>
+                        <strong><span class="text-warning">★</span> {{ staff_profile.rating }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-3 small">
+                        <span class="text-muted">Available</span>
+                        <strong>{% if staff_profile.is_available %}<span class="text-success">Yes</span>{% else %}<span class="text-danger">No</span>{% endif %}</strong>
+                    </div>
+                    <a href="{% url 'accounts:staff_profile_edit' %}" class="btn btn-sm btn-outline-primary w-100">Edit profile</a>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock content %}

@@ -1,0 +1,374 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load service_images %}
+
+{% block title %}ServiGo - Home Services & EV Charging{% endblock %}
+
+{% block content %}
+
+<!-- ============ HERO ============ -->
+<section class="hero" aria-label="Hero">
+    <div class="container">
+        <div class="row align-items-center g-5">
+            <div class="col-lg-6">
+                <span class="eyebrow mb-4"><i class="bi bi-lightning-charge-fill"></i> Trusted home services & EV charging</span>
+                <h1 class="mb-4">
+                    Home services, <span class="text-primary">solved in hours.</span>
+                </h1>
+                <p class="lead mb-5">
+                    Book verified electricians, plumbers and Smart TV experts — or find the
+                    nearest EV charging station. One tap, doorstep service.
+                </p>
+
+                <!-- Search / quick book -->
+                <form class="hero-search mb-5" action="{% url 'services:list' %}" method="get" role="search">
+                    <div>
+                        <label for="q" class="visually-hidden">Search services</label>
+                        <input type="search" class="form-control" id="q" name="q" placeholder="What do you need?" aria-label="Search services">
+                    </div>
+                    <div>
+                        <label for="cat" class="visually-hidden">Category</label>
+                        <select class="form-select" id="cat" name="category" aria-label="Category">
+                            <option value="">All categories</option>
+                            {% for category in categories %}
+                            <option value="{{ category.slug }}">{{ category.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="bi bi-search me-1"></i> Search
+                    </button>
+                </form>
+
+                <div class="hero-stats">
+                    <div class="hero-stat">
+                        <strong>12k+</strong>
+                        <span>Services completed</span>
+                    </div>
+                    <div class="hero-stat">
+                        <strong>{{ ev_stations_count|default:"40+" }}</strong>
+                        <span>EV charging stations</span>
+                    </div>
+                    <div class="hero-stat">
+                        <strong>4.8<i class="bi bi-star-fill text-warning ms-1" style="font-size:1rem;"></i></strong>
+                        <span>Average rating</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="hero-image-wrap">
+                    <img src="{% static 'images/hero.jpg' %}" alt="ServiGo technician at work" loading="eager">
+                    <div class="hero-badge b1">
+                        <i class="bi bi-patch-check-fill"></i>
+                        <div>
+                            <strong>Verified Experts</strong>
+                            <small>Background checked</small>
+                        </div>
+                    </div>
+                    <div class="hero-badge b2">
+                        <i class="bi bi-ev-station-fill text-success"></i>
+                        <div>
+                            <strong>{{ ev_stations_count|default:"40" }}+ Stations</strong>
+                            <small>Across your city</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ CATEGORIES ============ -->
+<section class="section-pad" aria-label="Service categories">
+    <div class="container">
+        <div class="text-center mb-5">
+            <span class="eyebrow mb-3">What we do</span>
+            <h2 class="section-title">Services for every home need</h2>
+            <p class="section-sub mx-auto">Pick a category or explore the full catalogue below.</p>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-center gap-3">
+            {% for category in categories %}
+            <a href="{% url 'services:category_detail' category.slug %}" class="category-chip">
+                <i class="bi bi-{{ category.icon|default:'wrench' }}"></i>
+                {{ category.name }}
+            </a>
+            {% empty %}
+            <p class="text-muted">Categories coming soon.</p>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<!-- ============ FEATURED SERVICES ============ -->
+<section class="section-pad bg-surface-2" aria-label="Featured services">
+    <div class="container">
+        <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-5">
+            <div>
+                <span class="eyebrow mb-3">Popular right now</span>
+                <h2 class="section-title mb-0">Featured services</h2>
+            </div>
+            <a href="{% url 'services:list' %}" class="btn btn-outline-primary">
+                View all services <i class="bi bi-arrow-right ms-1"></i>
+            </a>
+        </div>
+
+        <div class="row g-4">
+            {% for service in featured_services %}
+            <div class="col-md-6 col-lg-4">
+                <article class="service-card">
+                    <div class="img-zoom">
+                        {% if service.image %}
+                        <img src="{{ service.image.url }}" class="card-img-top" alt="{{ service.name }}" loading="lazy">
+                        {% else %}
+                        <img src="{% static 'images/' %}{{ service.category|category_image }}" class="card-img-top" alt="{{ service.name }}" loading="lazy" onerror="this.src='{% static 'images/technician-1.jpg' %}'">
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <span class="eyebrow mb-2" style="padding:.25rem .75rem;font-size:.6875rem;">
+                            <i class="bi bi-{{ service.category.icon|default:'wrench' }}"></i>
+                            {{ service.category.name }}
+                        </span>
+                        <h3 class="card-title">{{ service.name }}</h3>
+                        <p class="card-text">{{ service.short_description|truncatechars:90 }}</p>
+                        <div class="d-flex align-items-center justify-content-between mt-auto pt-3">
+                            <span class="price">
+                                {{ service.get_formatted_price }}
+                                <small>/ visit</small>
+                            </span>
+                            <a href="{% url 'services:detail' service.category.slug service.slug %}" class="btn btn-sm btn-primary">
+                                Book now <i class="bi bi-arrow-right ms-1"></i>
+                            </a>
+                        </div>
+                    </div>
+                </article>
+            </div>
+            {% empty %}
+            <div class="col-12 text-center py-5">
+                <i class="bi bi-tools display-4 d-block mb-3 text-muted"></i>
+                <p class="text-muted">Featured services are being prepared.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="section-pad" aria-label="How it works">
+    <div class="container">
+        <div class="text-center mb-5">
+            <span class="eyebrow mb-3">How it works</span>
+            <h2 class="section-title">Book a service in 4 easy steps</h2>
+            <p class="section-sub mx-auto">From booking to done — we keep it simple and transparent.</p>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-6 col-lg-3">
+                <div class="step-card">
+                    <span class="step-num">1</span>
+                    <div class="step-icon"><i class="bi bi-search"></i></div>
+                    <h3>Choose a service</h3>
+                    <p>Browse the catalogue or search for the exact service you need.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="step-card">
+                    <span class="step-num">2</span>
+                    <div class="step-icon"><i class="bi bi-calendar2-check"></i></div>
+                    <h3>Pick a time slot</h3>
+                    <p>Select a date and time that works for you. Instant confirmation.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="step-card">
+                    <span class="step-num">3</span>
+                    <div class="step-icon"><i class="bi bi-person-check"></i></div>
+                    <h3>Expert arrives</h3>
+                    <p>A verified, background-checked professional reaches your doorstep.</p>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="step-card">
+                    <span class="step-num">4</span>
+                    <div class="step-icon"><i class="bi bi-stars"></i></div>
+                    <h3>Done &amp; reviewed</h3>
+                    <p>Work completed with warranty. Rate your experience to help others.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ EV CHARGING ============ -->
+<section class="section-pad" style="background: linear-gradient(180deg, #fff 0%, #f3f0ff 100%);" aria-label="EV charging">
+    <div class="container">
+        <div class="row align-items-center g-5">
+            <div class="col-lg-6 order-lg-2">
+                <span class="eyebrow accent mb-3"><i class="bi bi-ev-station-fill"></i> EV Charging Network</span>
+                <h2 class="section-title">Charge your EV at {{ ev_stations_count|default:"40" }}+ stations</h2>
+                <p class="section-sub mb-4">
+                    Find fast, reliable charging stations near you. Real-time availability,
+                    multiple connector types, and easy booking from your phone.
+                </p>
+                <ul class="feature-list mb-5">
+                    <li><i class="bi bi-check-circle-fill"></i> CCS2, CHAdeMO &amp; Type 2 connectors supported</li>
+                    <li><i class="bi bi-check-circle-fill"></i> Fast charging up to 150 kW</li>
+                    <li><i class="bi bi-check-circle-fill"></i> Live availability &amp; booking</li>
+                    <li><i class="bi bi-check-circle-fill"></i> Transparent per-unit pricing</li>
+                </ul>
+                <a href="{% url 'ev_charging:station_list' %}" class="btn btn-primary btn-lg">
+                    Find charging stations <i class="bi bi-arrow-right ms-1"></i>
+                </a>
+            </div>
+            <div class="col-lg-6 order-lg-1">
+                <div class="position-relative">
+                    <img src="{% static 'images/ev-charging.jpg' %}" alt="EV charging station" class="rounded-4 shadow-lg w-100" style="aspect-ratio:4/3;object-fit:cover;" loading="lazy">
+                    <div class="hero-badge b1" style="left:-4%;">
+                        <i class="bi bi-lightning-charge-fill text-warning"></i>
+                        <div>
+                            <strong>150 kW</strong>
+                            <small>Fast charging</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ WHY US (dark) ============ -->
+<section class="section-pad" aria-label="Why choose ServiGo">
+    <div class="container">
+        <div class="dark-section p-4 p-md-5">
+            <div class="text-center mb-5 pt-3">
+                <span class="eyebrow mb-3">Why ServiGo</span>
+                <h2 class="section-title">The trusted choice for your home</h2>
+            </div>
+            <div class="row g-4 pb-3">
+                <div class="col-md-6 col-lg-3">
+                    <div class="trust-item">
+                        <i class="bi bi-patch-check-fill"></i>
+                        <div>
+                            <h4>Verified experts</h4>
+                            <p>Every professional is background-checked, trained and rated by real customers.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="trust-item">
+                        <i class="bi bi-cash-coin"></i>
+                        <div>
+                            <h4>Transparent pricing</h4>
+                            <p>Fixed upfront quotes. No hidden charges, no surprise bills — ever.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="trust-item">
+                        <i class="bi bi-shield-check"></i>
+                        <div>
+                            <h4>Workmanship warranty</h4>
+                            <p>All services carry a 30-day warranty for complete peace of mind.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <div class="trust-item">
+                        <i class="bi bi-clock-history"></i>
+                        <div>
+                            <h4>On-time, every time</h4>
+                            <p>Track your expert live and get instant notifications at every step.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ TESTIMONIALS ============ -->
+<section class="section-pad bg-surface-2" aria-label="Testimonials">
+    <div class="container">
+        <div class="text-center mb-5">
+            <span class="eyebrow mb-3">What customers say</span>
+            <h2 class="section-title">Loved by thousands of homes</h2>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="testimonial-card">
+                    <div class="stars mb-3">
+                        <i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i>
+                    </div>
+                    <blockquote>
+                        "Booked an electrician at 9 AM, wiring issue fixed by noon. Transparent price, polite professional. Brilliant."
+                    </blockquote>
+                    <div class="testimonial-author">
+                        <img src="{% static 'images/technician-2.jpg' %}" alt="Rahul Sharma">
+                        <div>
+                            <strong>Rahul Sharma</strong>
+                            <span>Electrical repair · Bengaluru</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="testimonial-card">
+                    <div class="stars mb-3">
+                        <i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i>
+                    </div>
+                    <blockquote>
+                        "Found a CHAdeMO charging slot through ServiGo while on a road trip. Live availability saved my day."
+                    </blockquote>
+                    <div class="testimonial-author">
+                        <img src="{% static 'images/technician-4.jpg' %}" alt="Priya Nair">
+                        <div>
+                            <strong>Priya Nair</strong>
+                            <span>EV owner · Kochi</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="testimonial-card">
+                    <div class="stars mb-3">
+                        <i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-half"></i>
+                    </div>
+                    <blockquote>
+                        "Smart TV wall mount and setup done perfectly. The expert even helped configure streaming apps."
+                    </blockquote>
+                    <div class="testimonial-author">
+                        <img src="{% static 'images/technician-3.jpg' %}" alt="Ananya Iyer">
+                        <div>
+                            <strong>Ananya Iyer</strong>
+                            <span>Smart TV setup · Chennai</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="section-pad" aria-label="Call to action">
+    <div class="container">
+        <div class="cta-banner">
+            <h2 class="mb-3">Ready to get it done?</h2>
+            <p class="mb-4">
+                Join thousands of happy customers. Book your first service today and
+                get expert help at your doorstep.
+            </p>
+            <div class="d-flex flex-wrap justify-content-center gap-3">
+                {% if user.is_authenticated %}
+                <a href="{% url 'services:list' %}" class="btn btn-white btn-lg">Book a service</a>
+                {% else %}
+                <a href="{% url 'accounts:register' %}" class="btn btn-white btn-lg">Get started free</a>
+                <a href="{% url 'services:list' %}" class="btn btn-ghost-light btn-lg">Browse services</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock content %}

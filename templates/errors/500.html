@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Server Error - ServiGo{% endblock %}
+
+{% block content %}
+<section class="section-pad">
+    <div class="container text-center" style="max-width:36rem;">
+        <div class="display-1 fw-bold text-danger mb-3">500</div>
+        <h1 class="h3 mb-3">Something went wrong</h1>
+        <p class="text-muted mb-5">
+            We hit an unexpected error. Our team has been notified and is working on a fix.
+            Please try again in a moment.
+        </p>
+        <div class="d-flex justify-content-center gap-3">
+            <a href="{% url 'core:home' %}" class="btn btn-primary btn-lg">
+                <i class="bi bi-house me-2"></i> Back to home
+            </a>
+            <a href="{% url 'core:contact' %}" class="btn btn-light btn-lg">Report an issue</a>
+        </div>
+    </div>
+</section>
+{% endblock content %}

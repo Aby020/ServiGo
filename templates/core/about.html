@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}About Us - ServiGo{% endblock %}
+{% block meta_description %}Learn about ServiGo — our mission to deliver trusted home services and EV charging across India.{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">About Us</li>
+            </ol>
+        </nav>
+        <h1 class="mt-2">About ServiGo</h1>
+        <p class="text-muted mb-0">Trusted home services and EV charging, delivered right.</p>
+    </div>
+</div>
+
+<!-- Mission -->
+<section class="section-pad">
+    <div class="container">
+        <div class="row align-items-center g-5">
+            <div class="col-lg-6">
+                <span class="eyebrow mb-3">Our story</span>
+                <h2 class="section-title">We make home services effortless</h2>
+                <p class="mb-4">
+                    ServiGo started with a simple frustration: finding a reliable electrician or plumber
+                    should not be a gamble. We built a platform where every professional is verified,
+                    every price is transparent, and every service is backed by a warranty.
+                </p>
+                <p class="mb-4">
+                    Today, we're also powering the EV revolution — helping drivers find charging stations,
+                    book slots and charge with confidence across the city.
+                </p>
+                <div class="d-flex gap-4">
+                    <div class="hero-stat">
+                        <strong>12k+</strong>
+                        <span>Services delivered</span>
+                    </div>
+                    <div class="hero-stat">
+                        <strong>4.8</strong>
+                        <span>Customer rating</span>
+                    </div>
+                    <div class="hero-stat">
+                        <strong>100%</strong>
+                        <span>Verified experts</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <img src="{% static 'images/about.jpg' %}" alt="ServiGo team at work" class="rounded-4 shadow-lg w-100" style="aspect-ratio:4/3;object-fit:cover;" loading="lazy">
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Values -->
+<section class="section-pad bg-surface-2">
+    <div class="container">
+        <div class="text-center mb-5">
+            <span class="eyebrow mb-3">Our values</span>
+            <h2 class="section-title">What we stand for</h2>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-6 col-lg-3">
+                <div class="trust-item">
+                    <i class="bi bi-shield-check"></i>
+                    <div>
+                        <h4>Trust first</h4>
+                        <p>Background-verified professionals and guaranteed workmanship.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="trust-item">
+                    <i class="bi bi-currency-rupee"></i>
+                    <div>
+                        <h4>Transparency</h4>
+                        <p>Fixed upfront pricing. No surprises, no hidden charges.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="trust-item">
+                    <i class="bi bi-lightning-charge"></i>
+                    <div>
+                        <h4>Speed</h4>
+                        <p>Book in minutes, service in hours. On time, every time.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3">
+                <div class="trust-item">
+                    <i class="bi bi-heart"></i>
+                    <div>
+                        <h4>Care</h4>
+                        <p>Every job done right, with a 30-day warranty on workmanship.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Team -->
+<section class="section-pad">
+    <div class="container">
+        <div class="text-center mb-5">
+            <span class="eyebrow mb-3">Meet the team</span>
+            <h2 class="section-title">The people behind ServiGo</h2>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="content-card text-center">
+                    <img src="{% static 'images/team.jpg' %}" alt="Team member" class="rounded-circle mb-3" style="width:96px;height:96px;object-fit:cover;margin:auto;">
+                    <h3 class="h6 mb-1">Abi Thomas</h3>
+                    <p class="text-muted small mb-0">Founder &amp; CEO</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="content-card text-center">
+                    <img src="{% static 'images/technician-1.jpg' %}" alt="Team member" class="rounded-circle mb-3" style="width:96px;height:96px;object-fit:cover;margin:auto;">
+                    <h3 class="h6 mb-1">Operations Team</h3>
+                    <p class="text-muted small mb-0">Field &amp; Quality</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="content-card text-center">
+                    <img src="{% static 'images/technician-5.jpg' %}" alt="Team member" class="rounded-circle mb-3" style="width:96px;height:96px;object-fit:cover;margin:auto;">
+                    <h3 class="h6 mb-1">EV Network Team</h3>
+                    <p class="text-muted small mb-0">Charging Infrastructure</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="section-pad pt-0">
+    <div class="container">
+        <div class="cta-banner">
+            <h2 class="mb-3">Experience the ServiGo difference</h2>
+            <p class="mb-4">Join thousands of happy customers today.</p>
+            <a href="{% url 'services:list' %}" class="btn btn-white btn-lg">Browse services</a>
+        </div>
+    </div>
+</section>
+{% endblock content %}

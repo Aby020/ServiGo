@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Manage Booking #{{ booking.pk }} - ServiGo{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'bookings:staff_list' %}">All Bookings</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Booking #{{ booking.pk }}</li>
+            </ol>
+        </nav>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h1 class="mt-2">Booking #{{ booking.pk }}</h1>
+                <span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span>
+            </div>
+            <a href="{% url 'bookings:staff_list' %}" class="btn btn-light">
+                <i class="bi bi-arrow-left me-1"></i> Back to list
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="row g-4">
+            <!-- Booking details -->
+            <div class="col-lg-7">
+                <div class="content-card mb-4">
+                    <h2 class="h5 mb-4"><i class="bi bi-person me-2 text-primary"></i>Customer</h2>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Name</strong>
+                            <span class="fw-semibold">{{ booking.customer_name }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Phone</strong>
+                            <span class="fw-semibold">{{ booking.customer_phone }}</span>
+                        </div>
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Email</strong>
+                            <span class="fw-semibold">{{ booking.customer_email }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="content-card">
+                    <h2 class="h5 mb-4"><i class="bi bi-wrench-adjustable me-2 text-primary"></i>Service details</h2>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Service</strong>
+                            <span class="fw-semibold">{{ booking.service_name }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Amount</strong>
+                            <span class="fw-semibold">₹{{ booking.service_price|floatformat:2 }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Preferred date</strong>
+                            <span class="fw-semibold">{{ booking.preferred_date|date:"D, M j, Y" }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Preferred time</strong>
+                            <span class="fw-semibold">{{ booking.preferred_time|time:"g:i A" }}</span>
+                        </div>
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Address</strong>
+                            <span class="fw-semibold">{{ booking.location }} — {{ booking.address }}</span>
+                        </div>
+                        {% if booking.notes %}
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Customer notes</strong>
+                            <span class="fw-semibold">{{ booking.notes }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status update -->
+            <div class="col-lg-5">
+                <div class="content-card mb-4">
+                    <h2 class="h5 mb-4"><i class="bi bi-sliders me-2 text-primary"></i>Update status</h2>
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        {% for field in status_form %}
+                        <div class="mb-3">
+                            <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                        </div>
+                        {% endfor %}
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-check-lg me-1"></i> Update booking
+                        </button>
+                    </form>
+                </div>
+
+                <div class="content-card">
+                    <h2 class="h5 mb-4"><i class="bi bi-clock-history me-2 text-primary"></i>Timeline</h2>
+                    {% if status_history %}
+                    <ul class="list-unstyled mb-0">
+                        {% for history in status_history %}
+                        <li class="d-flex gap-3 mb-3">
+                            <span class="avatar" style="width:28px;height:28px;font-size:.7rem;">
+                                <i class="bi bi-circle-fill"></i>
+                            </span>
+                            <div>
+                                <strong class="d-block small">{{ history.new_status|title }}</strong>
+                                <span class="text-muted small">{{ history.created_at|date:"M j, g:i A" }}</span>
+                                {% if history.notes %}<p class="small mb-0 mt-1">{{ history.notes }}</p>{% endif %}
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted small mb-0">No status changes yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

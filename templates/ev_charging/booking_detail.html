@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}EV Booking #{{ booking.pk }} - ServiGo{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'ev_charging:booking_list' %}">My EV Bookings</a></li>
+                <li class="breadcrumb-item active" aria-current="page">EV Booking #{{ booking.pk }}</li>
+            </ol>
+        </nav>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h1 class="mt-2">EV Booking #{{ booking.pk }}</h1>
+                <span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span>
+            </div>
+            {% if booking.status != 'completed' and booking.status != 'cancelled' %}
+            <a href="{% url 'ev_charging:booking_cancel' booking.pk %}" class="btn btn-outline-danger" data-confirm="Cancel this EV booking?">
+                <i class="bi bi-x-circle me-1"></i> Cancel booking
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="row g-4">
+            <!-- Details -->
+            <div class="col-lg-8">
+                <div class="content-card mb-4">
+                    <h2 class="h5 mb-4"><i class="bi bi-ev-station me-2 text-primary"></i>Station &amp; schedule</h2>
+                    <div class="row g-4">
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Station</strong>
+                            <span class="fw-semibold d-block">{{ booking.station.name }}</span>
+                            <span class="text-muted small">{{ booking.station.address }}, {{ booking.station.city }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Date</strong>
+                            <span class="fw-semibold">{{ booking.booking_date|date:"D, M j, Y" }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Time</strong>
+                            <span class="fw-semibold">{{ booking.start_time|time:"g:i A" }} – {{ booking.end_time|time:"g:i A" }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Charger</strong>
+                            <span class="fw-semibold">{{ booking.station.get_charger_type_display }} · {{ booking.station.charging_speed_kw }} kW</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Estimated energy</strong>
+                            <span class="fw-semibold">{{ booking.estimated_kwh }} kWh</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Estimated cost</strong>
+                            <span class="fw-semibold">₹{{ booking.estimated_cost|floatformat:2 }}</span>
+                        </div>
+                        {% if booking.notes %}
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Notes</strong>
+                            <span class="fw-semibold">{{ booking.notes }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <div class="content-card position-sticky" style="top:6rem;">
+                    <h2 class="h6 fw-bold mb-3">Need help?</h2>
+                    <p class="small text-muted">Questions about this booking? Our support team is here to help.</p>
+                    <a href="{% url 'core:contact' %}" class="btn btn-primary w-100 mb-2">
+                        <i class="bi bi-headset me-1"></i> Contact support
+                    </a>
+                    <a href="{% url 'ev_charging:booking_list' %}" class="btn btn-light w-100">
+                        <i class="bi bi-arrow-left me-1"></i> Back to bookings
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

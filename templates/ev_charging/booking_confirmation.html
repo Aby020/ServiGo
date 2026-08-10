@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}EV Booking Confirmed - ServiGo{% endblock %}
+
+{% block content %}
+<section class="section-pad">
+    <div class="container" style="max-width:44rem;">
+        <div class="text-center mb-5">
+            <div class="d-inline-flex align-items-center justify-content-center rounded-circle bg-success-subtle mb-4" style="width:88px;height:88px;">
+                <i class="bi bi-ev-station-fill text-success" style="font-size:2.5rem;"></i>
+            </div>
+            <h1 class="mb-2">EV charging slot booked!</h1>
+            <p class="text-muted mb-0">A confirmation email has been sent to <strong>{{ booking.customer_email }}</strong>.</p>
+        </div>
+
+        <div class="content-card">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2 class="h5 mb-0">EV Booking #{{ booking.pk }}</h2>
+                <span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span>
+            </div>
+
+            <div class="row g-4">
+                <div class="col-sm-6">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-ev-station-fill text-primary" style="font-size:1.5rem;"></i>
+                        <div>
+                            <strong class="d-block">{{ booking.station.name }}</strong>
+                            <span class="text-muted small">{{ booking.station.city }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-calendar-check text-primary" style="font-size:1.5rem;"></i>
+                        <div>
+                            <strong class="d-block">{{ booking.booking_date|date:"D, M j, Y" }}</strong>
+                            <span class="text-muted small">{{ booking.start_time|time:"g:i A" }} – {{ booking.end_time|time:"g:i A" }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-lightning-charge text-primary" style="font-size:1.5rem;"></i>
+                        <div>
+                            <strong class="d-block">{{ booking.estimated_kwh }} kWh</strong>
+                            <span class="text-muted small">{{ booking.station.charging_speed_kw }} kW · {{ booking.station.get_charger_type_display }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-cash-stack text-primary" style="font-size:1.5rem;"></i>
+                        <div>
+                            <strong class="d-block">₹{{ booking.estimated_cost|floatformat:2 }}</strong>
+                            <span class="text-muted small">Estimated cost</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <div class="alert alert-success d-flex gap-2 align-items-center small mb-4">
+                <i class="bi bi-geo-alt"></i>
+                <span>{{ booking.station.address }}, {{ booking.station.city }} {{ booking.station.pincode }}</span>
+            </div>
+
+            <div class="d-flex flex-wrap gap-3">
+                <a href="{% url 'ev_charging:booking_detail' booking.pk %}" class="btn btn-primary px-4">
+                    <i class="bi bi-eye me-1"></i> View booking
+                </a>
+                <a href="{% url 'ev_charging:booking_list' %}" class="btn btn-light px-4">All my EV bookings</a>
+                <a href="{% url 'ev_charging:station_list' %}" class="btn btn-link">Find more stations</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

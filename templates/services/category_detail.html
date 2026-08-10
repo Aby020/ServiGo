@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load service_images %}
+
+{% block title %}{{ category.name }} Services - ServiGo{% endblock %}
+{% block meta_description %}{{ category.description|default:category.name }} services from verified ServiGo professionals.{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'services:list' %}">Services</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ category.name }}</li>
+            </ol>
+        </nav>
+        <div class="row align-items-center g-4 mt-1">
+            <div class="col-lg-8">
+                <span class="eyebrow mb-3"><i class="bi bi-{{ category.icon|default:'wrench' }}"></i> Service category</span>
+                <h1 class="mb-3">{{ category.name }} Services</h1>
+                <p class="text-muted mb-0">{{ category.description }}</p>
+            </div>
+            <div class="col-lg-4 text-lg-end">
+                <img src="{% static 'images/' %}{{ category|category_image }}" alt="{{ category.name }}" class="rounded-3 shadow" style="width:100%;max-width:260px;aspect-ratio:4/3;object-fit:cover;" onerror="this.style.display='none'">
+            </div>
+        </div>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <!-- Other categories -->
+        <div class="d-flex flex-wrap gap-2 mb-5">
+            <a href="{% url 'services:list' %}" class="btn btn-sm btn-light">All</a>
+            {% for cat in categories %}
+            <a href="{% url 'services:category_detail' cat.slug %}" class="btn btn-sm {% if cat.slug == category.slug %}btn-primary{% else %}btn-light{% endif %}">
+                <i class="bi bi-{{ cat.icon|default:'wrench' }} me-1"></i>{{ cat.name }}
+            </a>
+            {% endfor %}
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <p class="text-muted mb-0">
+                <strong class="text-ink">{{ services.count }}</strong> service{% if services.count != 1 %}s{% endif %} available
+            </p>
+        </div>
+
+        <div class="row g-4">
+            {% for service in services %}
+            <div class="col-md-6 col-lg-4">
+                <article class="service-card">
+                    <div class="img-zoom">
+                        {% if service.image %}
+                        <img src="{{ service.image.url }}" class="card-img-top" alt="{{ service.name }}" loading="lazy">
+                        {% else %}
+                        <img src="{% static 'images/' %}{{ category|category_image }}" class="card-img-top" alt="{{ service.name }}" loading="lazy" onerror="this.src='{% static 'images/technician-1.jpg' %}'">
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <h3 class="card-title" style="font-size:1.05rem;">{{ service.name }}</h3>
+                        <p class="card-text" style="font-size:.875rem;">{{ service.short_description|truncatechars:80 }}</p>
+                        <div class="d-flex align-items-center justify-content-between mt-auto pt-3">
+                            <span class="price" style="font-size:1rem;">
+                                {{ service.get_formatted_price }}
+                                <small>/ visit</small>
+                            </span>
+                            <a href="{% url 'services:detail' service.category.slug service.slug %}" class="btn btn-sm btn-primary">
+                                Book <i class="bi bi-arrow-right ms-1"></i>
+                            </a>
+                        </div>
+                    </div>
+                </article>
+            </div>
+            {% empty %}
+            <div class="col-12 text-center py-5">
+                <i class="bi bi-tools display-4 d-block mb-3 text-muted"></i>
+                <p class="text-muted">No services in this category yet.</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endblock content %}

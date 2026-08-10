@@ -1,0 +1,106 @@
+{% load static %}
+<div class="sidebar" id="dashboardSidebar">
+    <div class="sidebar-brand">
+        <svg width="30" height="30" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect width="36" height="36" rx="8" fill="#0d6efd"/>
+            <path d="M12 18L16.5 22.5L24 13.5" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        ServiGo
+    </div>
+
+    {% if user.is_customer %}
+    <div class="sidebar-label">Dashboard</div>
+    <nav class="nav flex-column">
+        <a class="nav-link {% if active == 'overview' %}active{% endif %}" href="{% url 'dashboard:customer' %}">
+            <i class="bi bi-speedometer2"></i> Overview
+        </a>
+        <a class="nav-link {% if active == 'bookings' %}active{% endif %}" href="{% url 'bookings:list' %}">
+            <i class="bi bi-calendar-check"></i> My Bookings
+        </a>
+        <a class="nav-link {% if active == 'ev_bookings' %}active{% endif %}" href="{% url 'ev_charging:booking_list' %}">
+            <i class="bi bi-ev-station"></i> EV Bookings
+        </a>
+    </nav>
+    <div class="sidebar-label">Services</div>
+    <nav class="nav flex-column">
+        <a class="nav-link" href="{% url 'services:list' %}">
+            <i class="bi bi-grid"></i> All Services
+        </a>
+        <a class="nav-link" href="{% url 'ev_charging:station_list' %}">
+            <i class="bi bi-map"></i> Find Stations
+        </a>
+    </nav>
+    <div class="sidebar-label">Account</div>
+    <nav class="nav flex-column">
+        <a class="nav-link {% if active == 'profile' %}active{% endif %}" href="{% url 'accounts:profile' %}">
+            <i class="bi bi-person"></i> My Profile
+        </a>
+        <a class="nav-link" href="{% url 'accounts:logout' %}">
+            <i class="bi bi-box-arrow-right"></i> Logout
+        </a>
+    </nav>
+
+    {% elif user.is_staff_user %}
+    <div class="sidebar-label">Dashboard</div>
+    <nav class="nav flex-column">
+        <a class="nav-link {% if active == 'overview' %}active{% endif %}" href="{% url 'dashboard:staff' %}">
+            <i class="bi bi-speedometer2"></i> Overview
+        </a>
+        <a class="nav-link {% if active == 'bookings' %}active{% endif %}" href="{% url 'bookings:staff_list' %}">
+            <i class="bi bi-list-task"></i> All Bookings
+        </a>
+        <a class="nav-link {% if active == 'ev_bookings' %}active{% endif %}" href="{% url 'ev_charging:staff_booking_list' %}">
+            <i class="bi bi-ev-station"></i> EV Bookings
+        </a>
+        <a class="nav-link {% if active == 'stations' %}active{% endif %}" href="{% url 'ev_charging:staff_station_list' %}">
+            <i class="bi bi-building"></i> Charging Stations
+        </a>
+    </nav>
+    <div class="sidebar-label">Account</div>
+    <nav class="nav flex-column">
+        <a class="nav-link {% if active == 'profile' %}active{% endif %}" href="{% url 'accounts:profile' %}">
+            <i class="bi bi-person-badge"></i> My Profile
+        </a>
+        <a class="nav-link" href="{% url 'accounts:logout' %}">
+            <i class="bi bi-box-arrow-right"></i> Logout
+        </a>
+    </nav>
+
+    {% elif user.is_admin_user %}
+    <div class="sidebar-label">Dashboard</div>
+    <nav class="nav flex-column">
+        <a class="nav-link {% if active == 'overview' %}active{% endif %}" href="{% url 'dashboard:admin' %}">
+            <i class="bi bi-speedometer2"></i> Overview
+        </a>
+        <a class="nav-link {% if active == 'bookings' %}active{% endif %}" href="{% url 'bookings:staff_list' %}">
+            <i class="bi bi-list-task"></i> All Bookings
+        </a>
+        <a class="nav-link {% if active == 'ev_bookings' %}active{% endif %}" href="{% url 'ev_charging:staff_booking_list' %}">
+            <i class="bi bi-ev-station"></i> EV Bookings
+        </a>
+        <a class="nav-link {% if active == 'stations' %}active{% endif %}" href="{% url 'ev_charging:staff_station_list' %}">
+            <i class="bi bi-building"></i> Charging Stations
+        </a>
+    </nav>
+    <div class="sidebar-label">Admin</div>
+    <nav class="nav flex-column">
+        <a class="nav-link" href="{% url 'admin:index' %}">
+            <i class="bi bi-gear"></i> Django Admin
+        </a>
+        <a class="nav-link {% if active == 'profile' %}active{% endif %}" href="{% url 'accounts:profile' %}">
+            <i class="bi bi-person"></i> My Profile
+        </a>
+        <a class="nav-link" href="{% url 'accounts:logout' %}">
+            <i class="bi bi-box-arrow-right"></i> Logout
+        </a>
+    </nav>
+    {% endif %}
+
+    <div class="p-4 mt-auto">
+        <div class="rounded-3 p-3" style="background:rgba(13,110,253,0.15);">
+            <strong class="d-block text-white small mb-1">Need help?</strong>
+            <span class="small" style="color:#8fa3bd;">Contact support for assistance.</span>
+            <a href="{% url 'core:contact' %}" class="btn btn-sm btn-primary w-100 mt-2">Contact us</a>
+        </div>
+    </div>
+</div>

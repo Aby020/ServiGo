@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Booking #{{ booking.pk }} - ServiGo{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'bookings:list' %}">My Bookings</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Booking #{{ booking.pk }}</li>
+            </ol>
+        </nav>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <h1 class="mt-2">Booking #{{ booking.pk }}</h1>
+                <span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span>
+            </div>
+            {% if booking.status != 'completed' and booking.status != 'cancelled' %}
+            <a href="{% url 'bookings:cancel' booking.pk %}" class="btn btn-outline-danger" data-confirm="Cancel this booking?">
+                <i class="bi bi-x-circle me-1"></i> Cancel booking
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="row g-4">
+            <!-- Details -->
+            <div class="col-lg-8">
+                <div class="content-card mb-4">
+                    <h2 class="h5 mb-4"><i class="bi bi-clipboard-check me-2 text-primary"></i>Booking details</h2>
+                    <div class="row g-4">
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Service</strong>
+                            <span class="fw-semibold">{{ booking.service_name }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Amount</strong>
+                            <span class="fw-semibold">₹{{ booking.service_price|floatformat:2 }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Preferred date</strong>
+                            <span class="fw-semibold">{{ booking.preferred_date|date:"D, M j, Y" }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Preferred time</strong>
+                            <span class="fw-semibold">{{ booking.preferred_time|time:"g:i A" }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Location</strong>
+                            <span class="fw-semibold">{{ booking.location }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Booked on</strong>
+                            <span class="fw-semibold">{{ booking.created_at|date:"M j, Y g:i A" }}</span>
+                        </div>
+                        {% if booking.assigned_staff %}
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Assigned expert</strong>
+                            <span class="fw-semibold">{{ booking.assigned_staff.get_full_name }}</span>
+                        </div>
+                        {% endif %}
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Address</strong>
+                            <span class="fw-semibold">{{ booking.address }}</span>
+                        </div>
+                        {% if booking.notes %}
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Notes</strong>
+                            <span class="fw-semibold">{{ booking.notes }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Status history -->
+                <div class="content-card">
+                    <h2 class="h5 mb-4"><i class="bi bi-clock-history me-2 text-primary"></i>Status timeline</h2>
+                    {% if status_history %}
+                    <ol class="list-unstyled mb-0">
+                        {% for history in status_history %}
+                        <li class="d-flex gap-3 mb-4">
+                            <div class="d-flex flex-column align-items-center">
+                                <span class="avatar" style="width:32px;height:32px;font-size:.75rem;">
+                                    <i class="bi bi-circle-fill"></i>
+                                </span>
+                                {% if not forloop.last %}<span class="flex-grow-1 border-start ms-3" style="min-height:2rem;"></span>{% endif %}
+                            </div>
+                            <div>
+                                <strong class="d-block">{{ history.new_status|title }}</strong>
+                                <span class="text-muted small">
+                                    {{ history.created_at|date:"M j, Y g:i A" }}
+                                    {% if history.changed_by %} by {{ history.changed_by.get_full_name }}{% endif %}
+                                </span>
+                                {% if history.notes %}<p class="small mb-0 mt-1">{{ history.notes }}</p>{% endif %}
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                    {% else %}
+                    <p class="text-muted mb-0">No status changes yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <div class="content-card position-sticky" style="top:6rem;">
+                    <h2 class="h6 fw-bold mb-3">Need help?</h2>
+                    <p class="small text-muted">Have questions about this booking? Our support team is here to help.</p>
+                    <a href="{% url 'core:contact' %}" class="btn btn-primary w-100 mb-2">
+                        <i class="bi bi-headset me-1"></i> Contact support
+                    </a>
+                    <a href="{% url 'bookings:list' %}" class="btn btn-light w-100">
+                        <i class="bi bi-arrow-left me-1"></i> Back to bookings
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

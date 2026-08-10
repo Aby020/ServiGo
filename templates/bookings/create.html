@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load service_images %}
+
+{% block title %}Book {{ service.name }} - ServiGo{% endblock %}
+{% block meta_description %}Book {{ service.name }} from ServiGo — verified experts at your doorstep.{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'services:list' %}">Services</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'services:detail' service.category.slug service.slug %}">{{ service.name }}</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Book</li>
+            </ol>
+        </nav>
+        <h1 class="mt-2">Book this service</h1>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="row g-5">
+            <!-- Form -->
+            <div class="col-lg-8">
+                <form method="post" class="booking-form-card" novalidate>
+                    {% csrf_token %}
+
+                    {% if form.errors %}
+                    <div class="alert alert-danger" role="alert">
+                        <strong>Please fix the following:</strong>
+                        <ul class="mb-0 mt-2 ps-3">
+                            {% for field in form %}
+                                {% for error in field.errors %}
+                                    <li>{{ field.label }}: {{ error }}</li>
+                                {% endfor %}
+                            {% endfor %}
+                            {% for error in form.non_field_errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    <h3 class="h5 mb-4"><i class="bi bi-calendar-event me-2 text-primary"></i>Schedule your visit</h3>
+                    <div class="row g-3">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.preferred_date.id_for_label }}" class="form-label">Preferred date</label>
+                            {{ form.preferred_date }}
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.preferred_time.id_for_label }}" class="form-label">Preferred time</label>
+                            {{ form.preferred_time }}
+                        </div>
+                    </div>
+
+                    <h3 class="h5 mb-4 mt-4"><i class="bi bi-geo-alt me-2 text-primary"></i>Location</h3>
+                    <div class="row g-3">
+                        <div class="col-md-6 mb-3">
+                            <label for="{{ form.location.id_for_label }}" class="form-label">Location / city</label>
+                            {{ form.location }}
+                        </div>
+                        <div class="col-12 mb-3">
+                            <label for="{{ form.address.id_for_label }}" class="form-label">Full address</label>
+                            {{ form.address }}
+                        </div>
+                    </div>
+
+                    <h3 class="h5 mb-4 mt-4"><i class="bi bi-chat-left-text me-2 text-primary"></i>Notes</h3>
+                    <div class="mb-3">
+                        {{ form.notes }}
+                    </div>
+
+                    <div class="d-flex gap-3 mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg px-5">
+                            <i class="bi bi-check2-circle me-2"></i> Confirm booking
+                        </button>
+                        <a href="{% url 'services:detail' service.category.slug service.slug %}" class="btn btn-light btn-lg">Cancel</a>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Summary -->
+            <div class="col-lg-4">
+                <div class="content-card position-sticky" style="top:6rem;">
+                    <h3 class="h6 fw-bold mb-3">Booking summary</h3>
+                    <div class="d-flex align-items-center gap-3 mb-4">
+                        <div class="img-zoom rounded-3 overflow-hidden" style="width:88px;height:88px;flex-shrink:0;">
+                            {% if service.image %}
+                            <img src="{{ service.image.url }}" alt="{{ service.name }}" style="width:100%;height:100%;object-fit:cover;">
+                            {% else %}
+                            <img src="{% static 'images/' %}{{ service.category|category_image }}" alt="{{ service.name }}" style="width:100%;height:100%;object-fit:cover;" onerror="this.src='{% static 'images/technician-1.jpg' %}'">
+                            {% endif %}
+                        </div>
+                        <div>
+                            <strong class="d-block">{{ service.name }}</strong>
+                            <span class="text-muted small">{{ service.category.name }}</span>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span class="text-muted">Service price</span>
+                        <strong>{{ service.get_formatted_price }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span class="text-muted">Duration</span>
+                        <strong>~{{ service.estimated_duration }} min</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 small">
+                        <span class="text-muted">Visit charge</span>
+                        <strong class="text-success">Free</strong>
+                    </div>
+                    <hr>
+                    <div class="d-flex justify-content-between mb-3">
+                        <span class="fw-bold">Total</span>
+                        <span class="price">{{ service.get_formatted_price }}</span>
+                    </div>
+
+                    <div class="alert alert-info small mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        You'll receive a confirmation email. We may call to confirm details.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

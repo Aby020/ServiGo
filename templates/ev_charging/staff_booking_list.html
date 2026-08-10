@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}EV Bookings - ServiGo Staff{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">EV Bookings</li>
+            </ol>
+        </nav>
+        <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
+            <div>
+                <h1 class="mt-2">EV Bookings</h1>
+                <p class="text-muted mb-0">Manage all EV charging bookings.</p>
+            </div>
+            <a href="{% url 'ev_charging:staff_station_list' %}" class="btn btn-light">
+                <i class="bi bi-building me-1"></i> Stations
+            </a>
+        </div>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <!-- Filters -->
+        <div class="content-card mb-4">
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label for="q" class="form-label">Search</label>
+                    <input type="search" name="q" id="q" class="form-control" value="{{ search_query }}" placeholder="Search customer, station…">
+                </div>
+                <div class="col-md-3">
+                    <label for="status" class="form-label">Status</label>
+                    <select name="status" id="status" class="form-select">
+                        <option value="">All statuses</option>
+                        {% for value, label in status_choices %}
+                        <option value="{{ value }}" {% if current_status == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Filter</button>
+                </div>
+                <div class="col-md-2 text-md-end">
+                    <a href="{% url 'dashboard:staff' %}" class="btn btn-light">Dashboard</a>
+                </div>
+            </form>
+        </div>
+
+        <div class="table-card">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Customer</th>
+                            <th>Station</th>
+                            <th>Schedule</th>
+                            <th>Est. cost</th>
+                            <th>Status</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for booking in bookings %}
+                        <tr>
+                            <td><strong class="text-ink">#{{ booking.pk }}</strong></td>
+                            <td>
+                                <strong class="d-block">{{ booking.customer_name }}</strong>
+                                <small class="text-muted">{{ booking.customer_phone|default:booking.customer_email }}</small>
+                            </td>
+                            <td>
+                                <strong class="d-block">{{ booking.station.name }}</strong>
+                                <small class="text-muted">{{ booking.station.city }}</small>
+                            </td>
+                            <td>
+                                <strong class="d-block">{{ booking.booking_date|date:"M j, Y" }}</strong>
+                                <small class="text-muted">{{ booking.start_time|time:"g:i A" }}</small>
+                            </td>
+                            <td class="fw-bold text-ink">₹{{ booking.estimated_cost|floatformat:0 }}</td>
+                            <td><span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span></td>
+                            <td class="text-end">
+                                <a href="{% url 'ev_charging:staff_booking_detail' booking.pk %}" class="btn btn-sm btn-outline-primary">
+                                    Manage <i class="bi bi-arrow-right ms-1"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5">
+                                <i class="bi bi-inbox display-4 d-block mb-3 text-muted"></i>
+                                <p class="text-muted mb-0">No EV bookings match your filters.</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% if is_paginated %}
+        <nav aria-label="Pagination" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"><i class="bi bi-chevron-left"></i></a></li>
+                {% endif %}
+                {% for num in page_obj.paginator.page_range %}
+                    {% if page_obj.number == num %}
+                    <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+                    <li class="page-item"><a class="page-link" href="?page={{ num }}{% if current_status %}&status={{ current_status }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}">{{ num }}</a></li>
+                    {% endif %}
+                {% endfor %}
+                {% if page_obj.has_next %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_status %}&status={{ current_status }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}"><i class="bi bi-chevron-right"></i></a></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</section>
+{% endblock content %}

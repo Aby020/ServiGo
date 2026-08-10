@@ -1,0 +1,172 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}My Profile - ServiGo{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">My Profile</li>
+            </ol>
+        </nav>
+        <h1 class="mt-2">My Profile</h1>
+        <p class="text-muted mb-0">Manage your personal information and account details.</p>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="row g-4">
+            <!-- Profile card -->
+            <div class="col-lg-4">
+                <div class="content-card text-center">
+                    <div class="mb-3">
+                        {% if profile_user.profile_image %}
+                        <img src="{{ profile_user.profile_image.url }}" alt="{{ profile_user.get_full_name }}" class="avatar rounded-circle" style="width:112px;height:112px;object-fit:cover;margin:auto;">
+                        {% else %}
+                        <div class="avatar rounded-circle d-flex align-items-center justify-content-center mx-auto" style="width:112px;height:112px;font-size:2.5rem;">
+                            {{ profile_user.get_full_name|first|upper }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    <h2 class="h4 mb-1">{{ profile_user.get_full_name }}</h2>
+                    <p class="text-muted mb-2">@{{ profile_user.username }}</p>
+
+                    <span class="status-badge {% if profile_user.role == 'staff' %}status-in-progress{% elif profile_user.role == 'admin' %}status-confirmed{% else %}status-completed{% endif %}">
+                        {{ profile_user.get_role_display }}
+                    </span>
+
+                    <hr class="my-4">
+
+                    <div class="text-start small">
+                        <p class="d-flex justify-content-between mb-2"><span class="text-muted">Email</span> <strong>{{ profile_user.email }}</strong></p>
+                        <p class="d-flex justify-content-between mb-2"><span class="text-muted">Phone</span> <strong>{{ profile_user.phone|default:'—' }}</strong></p>
+                        <p class="d-flex justify-content-between mb-2"><span class="text-muted">City</span> <strong>{{ profile_user.city|default:'—' }}</strong></p>
+                        <p class="d-flex justify-content-between mb-2"><span class="text-muted">State</span> <strong>{{ profile_user.state|default:'—' }}</strong></p>
+                        <p class="d-flex justify-content-between mb-0"><span class="text-muted">Pincode</span> <strong>{{ profile_user.pincode|default:'—' }}</strong></p>
+                    </div>
+
+                    <a href="{% url 'accounts:profile_edit' %}" class="btn btn-primary w-100 mt-4">
+                        <i class="bi bi-pencil-square me-2"></i> Edit profile
+                    </a>
+                    <a href="{% url 'accounts:password_change' %}" class="btn btn-outline-primary w-100 mt-2">
+                        <i class="bi bi-shield-lock me-2"></i> Change password
+                    </a>
+                </div>
+            </div>
+
+            <!-- Details -->
+            <div class="col-lg-8">
+                {% if profile_user.is_customer and customer_profile %}
+                <div class="content-card mb-4">
+                    <h3 class="h5 mb-4"><i class="bi bi-person-heart me-2 text-primary"></i>Customer Details</h3>
+                    <div class="row g-4">
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <div class="stat-icon green"><i class="bi bi-calendar-check"></i></div>
+                                <div>
+                                    <div class="stat-value">{{ customer_profile.total_bookings }}</div>
+                                    <div class="stat-label">Total bookings</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <div class="stat-icon blue"><i class="bi bi-star"></i></div>
+                                <div>
+                                    <div class="stat-value">{{ customer_profile.loyalty_points }}</div>
+                                    <div class="stat-label">Loyalty points</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="stat-card">
+                                <div class="stat-icon purple"><i class="bi bi-cash-stack"></i></div>
+                                <div>
+                                    <div class="stat-value">₹{{ customer_profile.total_spent|floatformat:0 }}</div>
+                                    <div class="stat-label">Total spent</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Date of birth</strong>
+                            {{ customer_profile.date_of_birth|default:'Not set' }}
+                        </div>
+                        <div class="col-md-6">
+                            <strong class="d-block mb-1 text-muted small">Preferred payment</strong>
+                            {{ customer_profile.preferred_payment_method|default:'Not set' }}
+                        </div>
+                    </div>
+                    <a href="{% url 'accounts:customer_profile_edit' %}" class="btn btn-outline-primary btn-sm mt-4">
+                        <i class="bi bi-sliders me-1"></i> Update customer details
+                    </a>
+                </div>
+                {% endif %}
+
+                {% if profile_user.is_staff_user and staff_profile %}
+                <div class="content-card mb-4">
+                    <h3 class="h5 mb-4"><i class="bi bi-briefcase me-2 text-primary"></i>Professional Details</h3>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <strong class="d-block mb-1 text-muted small">Specialization</strong>
+                            {{ staff_profile.specialization|default:'General' }}
+                        </div>
+                        <div class="col-md-4">
+                            <strong class="d-block mb-1 text-muted small">Experience</strong>
+                            {{ staff_profile.experience_years }} years
+                        </div>
+                        <div class="col-md-4">
+                            <strong class="d-block mb-1 text-muted small">Hourly rate</strong>
+                            {% if staff_profile.hourly_rate %}₹{{ staff_profile.hourly_rate }}{% else %}Not set{% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <strong class="d-block mb-1 text-muted small">Working radius</strong>
+                            {{ staff_profile.working_radius_km }} km
+                        </div>
+                        <div class="col-md-4">
+                            <strong class="d-block mb-1 text-muted small">Rating</strong>
+                            <span class="text-warning">★</span> {{ staff_profile.rating }}
+                        </div>
+                        <div class="col-md-4">
+                            <strong class="d-block mb-1 text-muted small">Jobs completed</strong>
+                            {{ staff_profile.total_jobs }}
+                        </div>
+                        {% if staff_profile.bio %}
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Bio</strong>
+                            {{ staff_profile.bio }}
+                        </div>
+                        {% endif %}
+                        {% if staff_profile.certifications %}
+                        <div class="col-12">
+                            <strong class="d-block mb-1 text-muted small">Certifications</strong>
+                            <pre class="mb-0 small" style="white-space:pre-wrap;">{{ staff_profile.certifications }}</pre>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <a href="{% url 'accounts:staff_profile_edit' %}" class="btn btn-outline-primary btn-sm mt-4">
+                        <i class="bi bi-sliders me-1"></i> Update professional details
+                    </a>
+                </div>
+                {% endif %}
+
+                <!-- Address -->
+                <div class="content-card">
+                    <h3 class="h5 mb-4"><i class="bi bi-geo-alt me-2 text-primary"></i>Address</h3>
+                    {% if profile_user.address %}
+                    <p class="mb-0">{{ profile_user.address }}<br>
+                    {{ profile_user.city }}{% if profile_user.city %}, {% endif %}{{ profile_user.state }} {{ profile_user.pincode }}</p>
+                    {% else %}
+                    <p class="text-muted mb-0">No address set yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

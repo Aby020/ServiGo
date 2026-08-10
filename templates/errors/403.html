@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Access Denied - ServiGo{% endblock %}
+
+{% block content %}
+<section class="section-pad">
+    <div class="container text-center" style="max-width:36rem;">
+        <div class="display-1 fw-bold text-warning mb-3">403</div>
+        <h1 class="h3 mb-3">Access denied</h1>
+        <p class="text-muted mb-5">
+            You don't have permission to view this page. If you believe this is a mistake,
+            please contact our support team.
+        </p>
+        <div class="d-flex justify-content-center gap-3">
+            <a href="{% url 'core:home' %}" class="btn btn-primary btn-lg">
+                <i class="bi bi-house me-2"></i> Back to home
+            </a>
+            <a href="{% url 'core:contact' %}" class="btn btn-light btn-lg">Contact support</a>
+        </div>
+    </div>
+</section>
+{% endblock content %}

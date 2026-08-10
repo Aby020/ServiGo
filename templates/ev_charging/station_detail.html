@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ station.name }} - ServiGo EV Charging{% endblock %}
+{% block meta_description %}{{ station.name }} — {{ station.get_charger_type_display }}, {{ station.charging_speed_kw }} kW, {{ station.get_formatted_price }}.{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'ev_charging:station_list' %}">EV Charging</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ station.name }}</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="row g-5">
+            <!-- Main -->
+            <div class="col-lg-8">
+                <div class="content-card">
+                    <div class="position-relative mb-4 rounded-3 overflow-hidden">
+                        {% if station.image %}
+                        <img src="{{ station.image.url }}" alt="{{ station.name }}" class="w-100" style="max-height:380px;object-fit:cover;">
+                        {% else %}
+                        <img src="{% static 'images/ev-station-2.jpg' %}" alt="{{ station.name }}" class="w-100" style="max-height:380px;object-fit:cover;">
+                        {% endif %}
+                        <span class="position-absolute top-0 start-0 m-3 status-badge {% if station.status == 'available' %}status-completed{% elif station.status == 'in_use' %}status-in-progress{% elif station.status == 'maintenance' %}status-pending{% else %}status-cancelled{% endif %}">
+                            {{ station.get_status_display }}
+                        </span>
+                        {% if is_open_now %}
+                        <span class="position-absolute top-0 end-0 m-3 status-badge status-completed"><i class="bi bi-circle-fill me-1"></i> Open now</span>
+                        {% endif %}
+                    </div>
+
+                    <h1 class="h2 mb-2">{{ station.name }}</h1>
+                    <p class="text-muted mb-4"><i class="bi bi-geo-alt me-1"></i>{{ station.address }}, {{ station.city }} {{ station.state }} {{ station.pincode }}</p>
+
+                    {% if station.description %}
+                    <p>{{ station.description }}</p>
+                    {% endif %}
+
+                    <div class="d-flex flex-wrap gap-3 my-4">
+                        <span class="power-chip"><i class="bi bi-plug me-1"></i> {{ station.get_charger_type_display }}</span>
+                        <span class="power-chip"><i class="bi bi-lightning-charge me-1"></i> Up to {{ station.charging_speed_kw }} kW</span>
+                        <span class="power-chip"><i class="bi bi-currency-rupee me-1"></i> {{ station.get_formatted_price }}</span>
+                        <span class="power-chip"><i class="bi bi-clock me-1"></i>
+                            {% if station.is_24_hours %}Open 24/7{% else %}{{ station.opens_at|time:"g:i A" }} – {{ station.closes_at|time:"g:i A" }}{% endif %}
+                        </span>
+                    </div>
+
+                    <hr class="my-4">
+
+                    <h2 class="h5 mb-3"><i class="bi bi-info-circle me-2 text-primary"></i>Station details</h2>
+                    <div class="row g-3">
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Total ports</strong>
+                            {{ station.total_ports }}
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Available ports</strong>
+                            <span class="{% if station.available_ports > 0 %}text-success fw-bold{% else %}text-danger fw-bold{% endif %}">{{ station.available_ports }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Price</strong>
+                            <span class="fw-semibold">{{ station.get_formatted_price }}</span>
+                        </div>
+                        <div class="col-sm-6">
+                            <strong class="d-block mb-1 text-muted small">Charging speed</strong>
+                            <span class="fw-semibold">{{ station.charging_speed_kw }} kW</span>
+                        </div>
+                    </div>
+
+                    {% if station.google_maps_url %}
+                    <div class="d-flex gap-2 mt-4">
+                        <a href="{{ station.google_maps_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-primary">
+                            <i class="bi bi-map me-1"></i> Get directions
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <div class="content-card position-sticky" style="top:6rem;">
+                    <h2 class="h5 mb-3">Book a charging slot</h2>
+                    <p class="small text-muted">Reserve your spot and arrive during your scheduled time.</p>
+
+                    <div class="alert {% if station.status == 'available' and station.available_ports > 0 %}alert-success{% else %}alert-warning{% endif %} small d-flex gap-2 align-items-center">
+                        <i class="bi {% if station.status == 'available' and station.available_ports > 0 %}bi-check-circle{% else %}bi-exclamation-triangle{% endif %}"></i>
+                        <span>
+                            {% if station.status == 'available' and station.available_ports > 0 %}
+                            {{ station.available_ports }} port{% if station.available_ports != 1 %}s{% endif %} available now
+                            {% else %}
+                            Currently {{ station.get_status_display|lower }}
+                            {% endif %}
+                        </span>
+                    </div>
+
+                    {% if user.is_authenticated %}
+                    <a href="{% url 'ev_charging:booking_create' station.slug %}" class="btn btn-primary btn-lg w-100 mb-2">
+                        <i class="bi bi-calendar-plus me-1"></i> Book a slot
+                    </a>
+                    {% else %}
+                    <a href="{% url 'accounts:login' %}?next={% url 'ev_charging:booking_create' station.slug %}" class="btn btn-primary btn-lg w-100 mb-2">
+                        <i class="bi bi-box-arrow-in-right me-1"></i> Login to book
+                    </a>
+                    {% endif %}
+
+                    <a href="{% url 'ev_charging:station_list' %}" class="btn btn-light w-100">
+                        <i class="bi bi-arrow-left me-1"></i> All stations
+                    </a>
+
+                    <hr>
+
+                    <h3 class="h6 fw-bold mb-3">Good to know</h3>
+                    <ul class="feature-list small">
+                        <li><i class="bi bi-check-circle-fill"></i>Transparent per-kWh pricing</li>
+                        <li><i class="bi bi-check-circle-fill"></i>Cancel up to 30 min before</li>
+                        <li><i class="bi bi-check-circle-fill"></i>Real-time availability updates</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock content %}

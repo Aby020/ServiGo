@@ -1,0 +1,154 @@
+{% load static %}
+<nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top" id="mainNavbar">
+    <div class="container">
+        <!-- Logo -->
+        <a class="navbar-brand fw-bold fs-3 text-primary" href="{% url 'core:home' %}" aria-label="ServiGo Home">
+            <span class="logo-icon me-2">
+                <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <rect width="36" height="36" rx="8" fill="currentColor" class="primary-color"/>
+                    <path d="M12 18L16.5 22.5L24 13.5" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </span>
+            <span class="d-none d-md-inline">ServiGo</span>
+            <span class="d-md-none">SG</span>
+        </a>
+
+        <!-- Mobile Toggle -->
+        <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <!-- Nav Links -->
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item">
+                    <a class="nav-link fw-medium px-3" href="{% url 'core:home' %}">Home</a>
+                </li>
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle fw-medium px-3" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Services
+                    </a>
+                    <ul class="dropdown-menu border-0 shadow-lg rounded-3">
+                        <li><h6 class="dropdown-header text-muted px-3 py-2">Home Services</h6></li>
+                        <li><a class="dropdown-item" href="{% url 'services:category_detail' 'electrical' %}"><i class="bi bi-lightning-charge me-2"></i>Electrical</a></li>
+                        <li><a class="dropdown-item" href="{% url 'services:category_detail' 'plumbing' %}"><i class="bi bi-droplet me-2"></i>Plumbing</a></li>
+                        <li><a class="dropdown-item" href="{% url 'services:category_detail' 'smart-tv' %}"><i class="bi bi-tv me-2"></i>Smart TV</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><h6 class="dropdown-header text-muted px-3 py-2">EV Charging</h6></li>
+                        <li><a class="dropdown-item" href="{% url 'ev_charging:station_list' %}"><i class="bi bi-ev-station me-2"></i>Find Stations</a></li>
+                        <li><a class="dropdown-item" href="{% url 'ev_charging:station_list' %}"><i class="bi bi-map me-2"></i>Station Map</a></li>
+                    </ul>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link fw-medium px-3" href="{% url 'core:about' %}">About Us</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link fw-medium px-3" href="{% url 'core:contact' %}">Contact</a>
+                </li>
+            </ul>
+
+            <!-- Right Side Actions -->
+            <div class="d-flex align-items-center gap-2">
+                {% if user.is_authenticated %}
+                    <!-- User Menu Dropdown -->
+                    <div class="dropdown">
+                        <button class="btn btn-light rounded-pill px-4 d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <div class="avatar-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center">
+                                {{ user.get_full_name|first|upper|default:user.username|first|upper }}
+                            </div>
+                            <span class="fw-medium d-none d-sm-inline">{{ user.get_short_name|default:user.username }}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end border-0 shadow-lg rounded-3">
+                            <li><h6 class="dropdown-header text-muted px-3 py-2">Account</h6></li>
+                            <li><a class="dropdown-item" href="{% url 'accounts:profile' %}"><i class="bi bi-person me-2"></i>Profile</a></li>
+                            <li><a class="dropdown-item" href="{% url 'accounts:password_change' %}"><i class="bi bi-shield-lock me-2"></i>Change Password</a></li>
+                            {% if user.role == 'customer' %}
+                                <li><a class="dropdown-item" href="{% url 'bookings:list' %}"><i class="bi bi-calendar-check me-2"></i>My Bookings</a></li>
+                            {% elif user.role == 'staff' %}
+                                <li><a class="dropdown-item" href="{% url 'dashboard:staff' %}"><i class="bi bi-speedometer2 me-2"></i>Staff Dashboard</a></li>
+                                <li><a class="dropdown-item" href="{% url 'bookings:staff_list' %}"><i class="bi bi-list-task me-2"></i>All Bookings</a></li>
+                            {% elif user.role == 'admin' %}
+                                <li><a class="dropdown-item" href="{% url 'dashboard:admin' %}"><i class="bi bi-speedometer2 me-2"></i>Admin Dashboard</a></li>
+                            {% endif %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item text-danger" href="{% url 'accounts:logout' %}"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+                        </ul>
+                    </div>
+                {% else %}
+                    <a href="{% url 'accounts:login' %}" class="btn btn-outline-primary rounded-pill px-4">Login</a>
+                    <a href="{% url 'accounts:register' %}" class="btn btn-primary rounded-pill px-4">Sign Up</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</nav>
+
+<style>
+    /* Navbar custom styles */
+    #mainNavbar {
+        transition: all 0.3s ease;
+    }
+
+    #mainNavbar.scrolled {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(10px);
+    }
+
+    .navbar-brand .logo-icon {
+        display: inline-flex;
+    }
+
+    .dropdown-menu {
+        padding: 0.5rem 0;
+    }
+
+    .dropdown-item {
+        padding: 0.625rem 1.5rem;
+        transition: all 0.2s ease;
+    }
+
+    .dropdown-item:hover {
+        background-color: var(--bs-primary-bg-subtle);
+        color: var(--bs-primary);
+    }
+
+    .dropdown-item i {
+        width: 1.25rem;
+        text-align: center;
+    }
+
+    .avatar-sm {
+        width: 36px;
+        height: 36px;
+        font-size: 0.875rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        #mainNavbar,
+        .dropdown-item {
+            transition: none;
+        }
+    }
+</style>
+
+<script>
+    // Navbar scroll effect
+    document.addEventListener('DOMContentLoaded', function() {
+        const navbar = document.getElementById('mainNavbar');
+        if (!navbar) return;
+
+        let lastScroll = 0;
+        window.addEventListener('scroll', function() {
+            const currentScroll = window.pageYOffset;
+
+            if (currentScroll > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+
+            lastScroll = currentScroll;
+        }, { passive: true });
+    });
+</script>

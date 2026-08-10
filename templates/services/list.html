@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load service_images %}
+
+{% block title %}All Services - ServiGo{% endblock %}
+{% block meta_description %}Browse and book all ServiGo home services — electrical, plumbing, Smart TV and more.{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Services</li>
+            </ol>
+        </nav>
+        <h1 class="mt-2">All Services</h1>
+        <p class="text-muted mb-0">Professional help for every home need — book in minutes.</p>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <!-- Filters -->
+        <div class="content-card mb-5">
+            <form method="get" class="row g-3 align-items-end" role="search">
+                <div class="col-md-5">
+                    <label for="q" class="form-label">Search</label>
+                    <input type="search" name="q" id="q" class="form-control" value="{{ search_query }}" placeholder="Search services…">
+                </div>
+                <div class="col-md-4">
+                    <label for="category" class="form-label">Category</label>
+                    <select name="category" id="category" class="form-select">
+                        <option value="">All categories</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.slug }}" {% if current_category == cat.slug %}selected{% endif %}>{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="featured" value="1" id="featured" {% if show_featured %}checked{% endif %}>
+                        <label class="form-check-label" for="featured">Featured only</label>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 mt-2">
+                        <i class="bi bi-funnel me-1"></i> Apply filters
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Results -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <p class="text-muted mb-0">
+                <strong class="text-ink">{{ page_obj.paginator.count }}</strong> service{% if page_obj.paginator.count != 1 %}s{% endif %} found
+            </p>
+            {% if current_category or search_query or show_featured %}
+            <a href="{% url 'services:list' %}" class="btn btn-sm btn-light">Clear filters <i class="bi bi-x-lg ms-1"></i></a>
+            {% endif %}
+        </div>
+
+        <div class="row g-4">
+            {% for service in services %}
+            <div class="col-md-6 col-lg-4 col-xl-3">
+                <article class="service-card">
+                    <div class="img-zoom">
+                        {% if service.image %}
+                        <img src="{{ service.image.url }}" class="card-img-top" alt="{{ service.name }}" loading="lazy">
+                        {% else %}
+                        <img src="{% static 'images/' %}{{ service.category|category_image }}" class="card-img-top" alt="{{ service.name }}" loading="lazy" onerror="this.src='{% static 'images/technician-1.jpg' %}'">
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <span class="eyebrow mb-2" style="padding:.25rem .75rem;font-size:.6875rem;">
+                            <i class="bi bi-{{ service.category.icon|default:'wrench' }}"></i>
+                            {{ service.category.name }}
+                        </span>
+                        <h3 class="card-title" style="font-size:1.05rem;">{{ service.name }}</h3>
+                        <p class="card-text" style="font-size:.875rem;">{{ service.short_description|truncatechars:80 }}</p>
+                        <div class="d-flex align-items-center justify-content-between mt-auto pt-3">
+                            <span class="price" style="font-size:1rem;">
+                                {{ service.get_formatted_price }}
+                                <small>/ visit</small>
+                            </span>
+                            <a href="{% url 'services:detail' service.category.slug service.slug %}" class="btn btn-sm btn-primary">
+                                Book <i class="bi bi-arrow-right ms-1"></i>
+                            </a>
+                        </div>
+                    </div>
+                </article>
+            </div>
+            {% empty %}
+            <div class="col-12 text-center py-5">
+                <i class="bi bi-search display-4 d-block mb-3 text-muted"></i>
+                <h3 class="h5">No services found</h3>
+                <p class="text-muted">Try adjusting your search or filters.</p>
+                <a href="{% url 'services:list' %}" class="btn btn-primary mt-2">View all services</a>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Pagination -->
+        {% if is_paginated %}
+        <nav aria-label="Service pagination" class="mt-5">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_category %}&category={{ current_category }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}" aria-label="Previous">
+                        <i class="bi bi-chevron-left"></i>
+                    </a>
+                </li>
+                {% endif %}
+
+                {% for num in page_obj.paginator.page_range %}
+                    {% if page_obj.number == num %}
+                    <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ num }}{% if current_category %}&category={{ current_category }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}">{{ num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_category %}&category={{ current_category }}{% endif %}{% if search_query %}&q={{ search_query }}{% endif %}" aria-label="Next">
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</section>
+{% endblock content %}

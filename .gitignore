@@ -1,0 +1,42 @@
+# Environment & secrets
+.env
+.env.local
+.env.*
+!.env.example
+
+# Python / Django
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Database
+db.sqlite3
+*.sqlite3
+
+# Static / media
+staticfiles/
+media/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Credential / key files
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+.netrc
+.pypirc
+
+# Machine-local config (Claude Code) — never commit
+.claude/settings.local.json

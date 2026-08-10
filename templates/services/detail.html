@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load service_images %}
+
+{% block title %}{{ service.name }} - ServiGo{% endblock %}
+{% block meta_description %}{{ service.short_description }}{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'services:list' %}">Services</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'services:category_detail' service.category.slug %}">{{ service.category.name }}</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ service.name }}</li>
+            </ol>
+        </nav>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="row g-5">
+            <!-- Main -->
+            <div class="col-lg-8">
+                <div class="content-card">
+                    <div class="img-zoom mb-4 rounded-3 overflow-hidden">
+                        {% if service.image %}
+                        <img src="{{ service.image.url }}" alt="{{ service.name }}" class="w-100" style="max-height:420px;object-fit:cover;">
+                        {% else %}
+                        <img src="{% static 'images/' %}{{ service.category|category_image }}" alt="{{ service.name }}" class="w-100" style="max-height:420px;object-fit:cover;" onerror="this.src='{% static 'images/technician-1.jpg' %}'">
+                        {% endif %}
+                    </div>
+
+                    <span class="eyebrow mb-3"><i class="bi bi-{{ service.category.icon|default:'wrench' }}"></i> {{ service.category.name }}</span>
+                    <h1 class="h2 mb-3">{{ service.name }}</h1>
+                    <p class="lead text-muted">{{ service.short_description }}</p>
+
+                    <hr class="my-4">
+
+                    <h2 class="h4 mb-3">About this service</h2>
+                    <p>{{ service.description|linebreaks }}</p>
+
+                    {% if service.get_what_included_list %}
+                    <h2 class="h4 mb-3 mt-5">What's included</h2>
+                    <ul class="feature-list">
+                        {% for item in service.get_what_included_list %}
+                        <li><i class="bi bi-check-circle-fill"></i>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+
+                    <div class="d-flex flex-wrap gap-3 mt-5 pt-3 border-top">
+                        <span class="power-chip"><i class="bi bi-clock me-1"></i> ~{{ service.estimated_duration }} min</span>
+                        <span class="power-chip"><i class="bi bi-shield-check me-1 text-success"></i> 30-day warranty</span>
+                        <span class="power-chip"><i class="bi bi-person-check me-1 text-primary"></i> Verified expert</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4">
+                <div class="content-card position-sticky" style="top:6rem;">
+                    <div class="text-center mb-4">
+                        <div class="price-tag mb-1">
+                            {{ service.get_formatted_price }}
+                            <small>/ visit</small>
+                        </div>
+                        <p class="text-muted small mb-0">Inclusive of visit &amp; standard parts*</p>
+                    </div>
+
+                    <div class="d-grid gap-2 mb-4">
+                        {% if user.is_authenticated %}
+                        <a href="{% url 'bookings:create' service.pk %}" class="btn btn-primary btn-lg">
+                            <i class="bi bi-calendar-plus me-2"></i>Book this service
+                        </a>
+                        {% else %}
+                        <a href="{% url 'accounts:login' %}?next={% url 'bookings:create' service.pk %}" class="btn btn-primary btn-lg">
+                            <i class="bi bi-box-arrow-in-right me-2"></i>Login to book
+                        </a>
+                        {% endif %}
+                        <a href="{% url 'core:contact' %}" class="btn btn-light">Ask a question</a>
+                    </div>
+
+                    <hr>
+
+                    <h3 class="h6 fw-bold mb-3">Why book with ServiGo?</h3>
+                    <ul class="feature-list small">
+                        <li><i class="bi bi-check-circle-fill"></i>Background-checked professionals</li>
+                        <li><i class="bi bi-check-circle-fill"></i>Transparent, fixed pricing</li>
+                        <li><i class="bi bi-check-circle-fill"></i>Live booking status updates</li>
+                        <li><i class="bi bi-check-circle-fill"></i>7-day easy rescheduling</li>
+                    </ul>
+
+                    <div class="alert alert-success d-flex gap-2 align-items-center small mt-4 mb-0">
+                        <i class="bi bi-headset"></i>
+                        <span>Need help? <a href="{% url 'core:contact' %}" class="fw-bold">Contact us</a> — we reply within 24h.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Related -->
+        {% if related_services %}
+        <div class="mt-5 pt-5 border-top">
+            <div class="d-flex align-items-end justify-content-between mb-4">
+                <div>
+                    <span class="eyebrow mb-2">You may also like</span>
+                    <h2 class="section-title mb-0" style="font-size:1.5rem;">Related services</h2>
+                </div>
+            </div>
+            <div class="row g-4">
+                {% for rel in related_services %}
+                <div class="col-md-6 col-lg-3">
+                    <article class="service-card">
+                        <div class="img-zoom">
+                            {% if rel.image %}
+                            <img src="{{ rel.image.url }}" class="card-img-top" alt="{{ rel.name }}" loading="lazy">
+                            {% else %}
+                            <img src="{% static 'images/' %}{{ rel.category|category_image }}" class="card-img-top" alt="{{ rel.name }}" loading="lazy" onerror="this.src='{% static 'images/technician-1.jpg' %}'">
+                            {% endif %}
+                        </div>
+                        <div class="card-body">
+                            <h3 class="card-title" style="font-size:1rem;">{{ rel.name }}</h3>
+                            <div class="d-flex align-items-center justify-content-between mt-auto pt-2">
+                                <span class="price" style="font-size:.9375rem;">{{ rel.get_formatted_price }}</span>
+                                <a href="{% url 'services:detail' rel.category.slug rel.slug %}" class="btn btn-sm btn-outline-primary">View</a>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</section>
+{% endblock content %}

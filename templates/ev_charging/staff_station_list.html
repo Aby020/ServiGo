@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Charging Stations - ServiGo Staff{% endblock %}
+
+{% block content %}
+<div class="page-hero">
+    <div class="container">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'core:home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Charging Stations</li>
+            </ol>
+        </nav>
+        <h1 class="mt-2">Charging Stations</h1>
+        <p class="text-muted mb-0">Overview of all EV charging stations.</p>
+    </div>
+</div>
+
+<section class="section-pad">
+    <div class="container">
+        <div class="content-card mb-4">
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label for="q" class="form-label">Search stations</label>
+                    <input type="search" name="q" id="q" class="form-control" placeholder="Search by name, address, city…">
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Search</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="table-card">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Station</th>
+                            <th>Location</th>
+                            <th>Charger</th>
+                            <th>Speed</th>
+                            <th>Ports</th>
+                            <th>Status</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for station in stations %}
+                        <tr>
+                            <td><strong class="text-ink">{{ station.name }}</strong></td>
+                            <td>
+                                <span class="d-block">{{ station.city }}</span>
+                                <small class="text-muted">{{ station.state }}</small>
+                            </td>
+                            <td>
+                                <span class="connector-chip {% if station.charger_type == 'ccs2' %}ccs{% elif station.charger_type == 'chademo' %}chademo{% elif station.charger_type == 'type2' %}type2{% else %}other{% endif %}">
+                                    <i class="bi bi-plug"></i> {{ station.get_charger_type_display|truncatechars:14 }}
+                                </span>
+                            </td>
+                            <td class="fw-semibold">{{ station.charging_speed_kw }} kW</td>
+                            <td class="text-ink">{{ station.available_ports }}/{{ station.total_ports }}</td>
+                            <td>
+                                <span class="status-badge {% if station.status == 'available' %}status-completed{% elif station.status == 'in_use' %}status-in-progress{% elif station.status == 'maintenance' %}status-pending{% else %}status-cancelled{% endif %}">
+                                    {{ station.get_status_display }}
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                <a href="{% url 'ev_charging:station_detail' station.slug %}" class="btn btn-sm btn-outline-primary">
+                                    View <i class="bi bi-arrow-right ms-1"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5">
+                                <i class="bi bi-building display-4 d-block mb-3 text-muted"></i>
+                                <p class="text-muted mb-0">No stations found.</p>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% if is_paginated %}
+        <nav aria-label="Pagination" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}"><i class="bi bi-chevron-left"></i></a></li>
+                {% endif %}
+                {% for num in page_obj.paginator.page_range %}
+                    {% if page_obj.number == num %}
+                    <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                    {% elif num > page_obj.number|add:"-3" and num < page_obj.number|add:"3" %}
+                    <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+                    {% endif %}
+                {% endfor %}
+                {% if page_obj.has_next %}
+                <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}"><i class="bi bi-chevron-right"></i></a></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</section>
+{% endblock content %}

@@ -1,0 +1,209 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Admin Dashboard - ServiGo{% endblock %}
+
+{% block content %}
+<div class="dashboard-shell">
+    {% include 'dashboard/partials/sidebar.html' with active='overview' %}
+
+    <main class="dashboard-main">
+        <div class="d-lg-none mb-3">
+            <button class="btn btn-primary" id="sidebarToggle" aria-controls="dashboardSidebar" aria-expanded="false">
+                <i class="bi bi-list me-1"></i> Menu
+            </button>
+        </div>
+
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1">Admin Dashboard</h1>
+                <p class="text-muted mb-0">Business overview — {{ stats.total_bookings }} total bookings, ₹{{ stats.total_revenue|floatformat:0 }} revenue.</p>
+            </div>
+            <a href="{% url 'admin:index' %}" class="btn btn-primary">
+                <i class="bi bi-gear me-1"></i> Django Admin
+            </a>
+        </div>
+
+        <!-- Revenue + bookings stats -->
+        <div class="row g-4 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon blue"><i class="bi bi-cash-stack"></i></div>
+                    <div>
+                        <div class="stat-value">₹{{ stats.total_revenue|floatformat:0 }}</div>
+                        <div class="stat-label">Total revenue</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon green"><i class="bi bi-graph-up-arrow"></i></div>
+                    <div>
+                        <div class="stat-value">{{ stats.bookings_month }}</div>
+                        <div class="stat-label">Bookings (30d)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon purple"><i class="bi bi-person"></i></div>
+                    <div>
+                        <div class="stat-value">{{ stats.total_customers }}</div>
+                        <div class="stat-label">Customers</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="stat-card">
+                    <div class="stat-icon orange"><i class="bi bi-person-badge"></i></div>
+                    <div>
+                        <div class="stat-value">{{ stats.total_staff }}</div>
+                        <div class="stat-label">Staff</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Booking status breakdown -->
+        <div class="table-card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-pie-chart me-2 text-primary"></i>Booking status breakdown</h5>
+            </div>
+            <div class="p-4">
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <span class="status-badge status-pending">Pending · {{ stats.pending_bookings }}</span>
+                    <span class="status-badge status-confirmed">Confirmed · {{ stats.confirmed_bookings }}</span>
+                    <span class="status-badge status-in-progress">In Progress · {{ stats.in_progress_bookings }}</span>
+                    <span class="status-badge status-completed">Completed · {{ stats.completed_bookings }}</span>
+                    <span class="status-badge status-cancelled">Cancelled · {{ stats.cancelled_bookings }}</span>
+                </div>
+                <div class="progress" style="height:10px;" role="progressbar" aria-label="Booking completion rate">
+                    {% widthratio stats.completed_bookings stats.total_bookings|default:1 100 as completion_pct %}
+                    <div class="progress-bar bg-success" style="width: {{ completion_pct }}%"></div>
+                </div>
+                <p class="small text-muted mt-2 mb-0">{{ completion_pct }}% completion rate</p>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Popular services -->
+            <div class="col-lg-5">
+                <div class="table-card mb-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-fire me-2 text-primary"></i>Popular services</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <tbody>
+                                {% for service in popular_services %}
+                                <tr>
+                                    <td class="fw-semibold">{{ service.service_name }}</td>
+                                    <td class="text-end">
+                                        <span class="badge rounded-pill text-bg-primary">{{ service.booking_count }} bookings</span>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td class="text-center py-4 text-muted">No completed bookings yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Category stats -->
+                <div class="table-card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-grid me-2 text-primary"></i>Categories</h5>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <tbody>
+                                {% for category in category_stats %}
+                                <tr>
+                                    <td class="fw-semibold"><i class="bi bi-{{ category.icon|default:'wrench' }} me-2 text-primary"></i>{{ category.name }}</td>
+                                    <td class="text-end text-muted small">{{ category.service_count }} services</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td class="text-center py-4 text-muted">No categories yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent bookings -->
+            <div class="col-lg-7">
+                <div class="table-card mb-4">
+                    <div class="card-header">
+                        <h5><i class="bi bi-list-task me-2 text-primary"></i>Recent service bookings</h5>
+                        <a href="{% url 'bookings:staff_list' %}" class="btn btn-sm btn-light">View all</a>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>Service</th>
+                                    <th>Amount</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in recent_bookings %}
+                                <tr>
+                                    <td>
+                                        <strong class="d-block">{{ booking.customer_name }}</strong>
+                                        <small class="text-muted">{{ booking.created_at|date:"M j, g:i A" }}</small>
+                                    </td>
+                                    <td>{{ booking.service_name }}</td>
+                                    <td class="fw-bold text-ink">₹{{ booking.service_price|floatformat:0 }}</td>
+                                    <td><span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span></td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4 text-muted">No bookings yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Recent EV bookings -->
+                <div class="table-card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-ev-station me-2 text-primary"></i>Recent EV bookings</h5>
+                        <a href="{% url 'ev_charging:staff_booking_list' %}" class="btn btn-sm btn-light">View all</a>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>Station</th>
+                                    <th>Est. cost</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for booking in recent_ev_bookings %}
+                                <tr>
+                                    <td>
+                                        <strong class="d-block">{{ booking.customer_name }}</strong>
+                                        <small class="text-muted">{{ booking.created_at|date:"M j, g:i A" }}</small>
+                                    </td>
+                                    <td>{{ booking.station.name }}</td>
+                                    <td class="fw-bold text-ink">₹{{ booking.estimated_cost|floatformat:0 }}</td>
+                                    <td><span class="status-badge status-{{ booking.status }}">{{ booking.get_status_display }}</span></td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="text-center py-4 text-muted">No EV bookings yet.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock content %}
