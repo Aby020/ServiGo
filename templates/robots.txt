@@ -1,0 +1,24 @@
+# robots.txt for Nanoserv Project
+
+User-agent: *
+Disallow: /admin/
+Disallow: /accounts/
+Disallow: /login/
+Disallow: /register/
+Disallow: /cart/
+Disallow: /checkout/
+Disallow: /static/
+Disallow: /media/
+
+# Allow all other important public pages
+Allow: /blogs/
+Allow: /index/
+Allow: /about/
+Allow: /service/
+Allow: /contact/
+
+# Crawl-delay to prevent server overload (optional)
+Crawl-delay: 5
+
+# Sitemap for better indexing
+Sitemap: https://www.nanoserv.pythonanywhere.com/sitemap.xml
