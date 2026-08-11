@@ -38,6 +38,9 @@ id_rsa*
 .netrc
 .pypirc
 
+# Product spec — contains credentials, never commit
+PRODUCT.md
+
 # Machine-local configuration — never commit
 .claude/
 CLAUDE.md
