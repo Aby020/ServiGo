@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🏠 ServiGo
+# ☑️ ServiGo
 
 ### Home Services & EV Charging Booking Platform
 
