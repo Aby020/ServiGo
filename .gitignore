@@ -41,7 +41,4 @@ id_rsa*
 # Product spec — contains credentials, never commit
 PRODUCT.md
 
-# Machine-local configuration — never commit
-.claude/
-CLAUDE.md
-.claudeignore
+
