@@ -4,6 +4,12 @@
 .env.*
 !.env.example
 
+# Next.js / frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+
 # Python / Django
 __pycache__/
 *.py[cod]
@@ -41,4 +47,15 @@ id_rsa*
 # Product spec — contains credentials, never commit
 PRODUCT.md
 
+# Task/agent scratch output — not product source
+Task.md
+TASK_COMPLETE.md
+svc_probe.json
 
+# Machine-local configuration — never commit
+.claude/
+CLAUDE.md
+.claudeignore
+
+# Partial download artifacts
+*.tmp

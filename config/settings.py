@@ -49,6 +49,9 @@ INSTALLED_APPS = [
     "crispy_forms",
     "crispy_bootstrap5",
     "django_browser_reload",
+    "rest_framework",
+    "corsheaders",
+    "drf_spectacular",
 
     # Local apps
     "accounts",
@@ -57,12 +60,14 @@ INSTALLED_APPS = [
     "ev_charging",
     "dashboard",
     "core",
+    "api",
 ]
 
 CRISPY_TEMPLATE_PACK = "bootstrap5"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -211,3 +216,36 @@ MESSAGE_TAGS = {
 # ServiGo specific settings
 SERVIGO_SITE_NAME = "ServiGo"
 SERVIGO_SITE_TAGLINE = "Your trusted home services partner"
+
+# ── CORS ─────────────────────────────────────────────────────────────────────
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# ── Django REST Framework ─────────────────────────────────────────────────────
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# ── drf-spectacular (OpenAPI / Swagger) ───────────────────────────────────────
+SPECTACULAR_SETTINGS = {
+    "TITLE": "ServiGo API",
+    "DESCRIPTION": "REST API for the ServiGo home-services platform.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # By default spectacular lists every read-only field in the schema's
+    # `required` array. For a response that is correct per OpenAPI — a
+    # read-only property in `required` means "required on the way out only" —
+    # but those same components are reused as request bodies, where it
+    # advertises "you must send role" for a field the endpoint ignores.
+    # Turning it off keeps generated clients from demanding server-owned
+    # fields (e.g. RegisterSerializer's `role` / `is_staff`).
+    "COMPONENT_NO_READ_ONLY_REQUIRED": True,
+}

@@ -1,0 +1,325 @@
+@import 'tailwindcss';
+
+/* Smooth scrolling for anchor navigation */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Offset scroll target to account for sticky navbar (h-16 = 64px) */
+:target {
+  scroll-margin-top: 5rem;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   ServiGo — "Service Signal" design tokens
+   ------------------------------------------------------------------------
+   Single source of truth for the visual system, ported from the ResumeAI
+   "Career Signal" token architecture (see ./RESUMEAI_MODEL.md).
+
+   Pattern: plain CSS custom properties on :root, bridged into Tailwind v4
+   via `@theme inline`. `inline` keeps the var() reference inside each
+   utility so the live value resolves per theme at the point of use — which
+   is what lets a theme swap be a single attribute on <html> with no
+   Tailwind config file.
+
+   ServiGo keeps a light-first warm-paper ground (it is a consumer
+   marketplace, and warm neutrals read as "home" rather than "terminal"),
+   with an indigo/blue brand accent and an amber "energy" accent reserved
+   for EV charging surfaces.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: light;
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  /* `var(--font-display-face)` / `--font-sans-face` are injected by
+     next/font in app/layout.tsx, so the actual webfont file is self-hosted
+     and subset by Next. The literal names remain as a no-JS fallback. */
+  --font-display-stack: var(--font-display-face), 'Sora', 'Inter', 'Segoe UI',
+    system-ui, sans-serif;
+  --font-sans-stack: var(--font-sans-face), 'Inter', 'Segoe UI', system-ui,
+    -apple-system, sans-serif;
+  --font-mono-stack: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas,
+    monospace;
+
+  /* ── Surfaces & neutrals — warm paper ────────────────────────────────── */
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-2: #faf9f6;
+  --surface-3: #f0efeb;
+  --surface-inverse: #1e1c1a;
+
+  /* ── Text ────────────────────────────────────────────────────────────── */
+  --text-strong: #1c1b19;
+  --text: #403d38;
+  --text-soft: #5f5a53;
+  --text-muted: #767169;
+
+  /* ── Borders ─────────────────────────────────────────────────────────── */
+  --border: #e6e4df;
+  --border-strong: #d3d0c9;
+
+  /* ── Brand — ServiGo indigo ──────────────────────────────────────────── */
+  --primary: #1e40af;
+  --primary-strong: #1e3a8a;
+  --primary-active: #172554;
+  --primary-soft: #e2e9fb;
+  --primary-faint: #f2f5fe;
+  --on-primary: #ffffff;
+  --primary-ring: rgba(30, 64, 175, 0.28);
+  --primary-glow: rgba(30, 64, 175, 0.07);
+
+  /* ── Accent — action orange (Book CTA) ───────────────────────────────── */
+  --accent: #ea580c;
+  --accent-strong: #c2410c;
+  --accent-active: #9a3412;
+  --accent-soft: #fdece1;
+  --on-accent: #ffffff;
+
+  /* ── EV — energy amber (charging surfaces only) ──────────────────────── */
+  --energy: #b45309;
+  --energy-strong: #92400e;
+  --energy-soft: #fdf1de;
+  --on-energy: #ffffff;
+
+  /* ── Status ──────────────────────────────────────────────────────────── */
+  --success: #047857;
+  --success-soft: #e4f2ec;
+  --warning: #b45309;
+  --warning-soft: #faf1e4;
+  --danger: #b91c1c;
+  --danger-soft: #fae9e7;
+  --info: #0369a1;
+  --info-soft: #e4f1f8;
+  --on-success: #ffffff;
+  --on-warning: #ffffff;
+  --on-danger: #ffffff;
+  --on-info: #ffffff;
+
+  /* ── Shadows — structural, never neon ────────────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(24, 30, 38, 0.04);
+  --shadow-sm: 0 1px 2px rgba(24, 30, 38, 0.04), 0 1px 3px rgba(24, 30, 38, 0.07);
+  --shadow-md: 0 2px 4px rgba(24, 30, 38, 0.05), 0 6px 18px rgba(24, 30, 38, 0.09);
+  --shadow-lg: 0 4px 8px rgba(24, 30, 38, 0.06), 0 16px 40px rgba(24, 30, 38, 0.14);
+
+  /* ── Restrained radii ────────────────────────────────────────────────── */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* ── Motion — one ease-out curve, short durations ────────────────────── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+
+  /* ── Layout rhythm ───────────────────────────────────────────────────── */
+  --header-h: 64px;
+  --page-max: 80rem; /* max-w-7xl — the single width authority */
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Tailwind bridge — map the CSS tokens onto Tailwind utilities.
+   `inline` keeps the var() reference so the live value resolves at use.
+   ════════════════════════════════════════════════════════════════════════ */
+@theme inline {
+  --font-sans: var(--font-sans-stack);
+  --font-display: var(--font-display-stack);
+  --font-mono: var(--font-mono-stack);
+
+  /* Surfaces */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-inverse: var(--surface-inverse);
+
+  /* Text */
+  --color-ink: var(--text-strong);
+  --color-text: var(--text);
+  --color-text-soft: var(--text-soft);
+  --color-muted: var(--text-muted);
+
+  /* Borders */
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+
+  /* Brand */
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-active: var(--primary-active);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-faint: var(--primary-faint);
+  --color-on-primary: var(--on-primary);
+
+  /* Accent */
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-active: var(--accent-active);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+
+  /* EV energy */
+  --color-energy: var(--energy);
+  --color-energy-strong: var(--energy-strong);
+  --color-energy-soft: var(--energy-soft);
+  --color-on-energy: var(--on-energy);
+
+  /* Status */
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  /* Radii — override Tailwind defaults with the restrained scale */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-pill: var(--radius-pill);
+
+  /* Shadows */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  /* Motion */
+  --ease-out: var(--ease-out);
+  --ease-in-out: var(--ease-in-out);
+  --duration-fast: var(--dur-fast);
+  --duration-base: var(--dur-base);
+  --duration-slow: var(--dur-slow);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Base layer
+   ════════════════════════════════════════════════════════════════════════ */
+@layer base {
+  html {
+    background-color: var(--bg);
+    /* Smooth in-page anchors. The reduced-motion block below forces this
+       back to `auto` for users who ask for less motion. */
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans-stack);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* The app shell paints the page ground; a page may still opt into the
+     backdrop treatment via `.page-canvas`. */
+  body {
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    background-color: var(--primary-soft);
+    color: var(--text-strong);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  /* Images never degrade the layout: a failed load keeps the box, and the
+     SafeImage component renders a styled fallback inside it. */
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Global reduced-motion kill switch. MotionConfig reducedMotion="user"
+     short-circuits the JS animations; this catches the CSS-driven ones. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Utilities
+   ════════════════════════════════════════════════════════════════════════ */
+@utility page-canvas {
+  /* The restrained radial backdrop used behind heroes. Soft, low-alpha, and
+     never a hard gradient edge — it should read as paper, not as an effect. */
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(
+      70rem 40rem at 82% -8%,
+      var(--primary-glow),
+      transparent 62%
+    ),
+    radial-gradient(
+      46rem 34rem at -6% 18%,
+      var(--primary-faint),
+      transparent 58%
+    );
+}
+
+/* Hairline rule used to separate the metric strip and major bands. */
+@utility hairline {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Indeterminate progress line (sweep while work is underway)
+   ------------------------------------------------------------------------
+   A soft highlight sweeping a track. Under reduced motion the sheen sits
+   static and centered — the surrounding label still carries the message, so
+   no information is lost without the animation.
+   ════════════════════════════════════════════════════════════════════════ */
+.progress-indeterminate {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-indeterminate::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 30%;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  opacity: 0.4;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .progress-indeterminate::after {
+    left: -40%;
+    animation: progress-sweep 1.6s var(--ease-in-out) infinite alternate;
+  }
+}
+
+@keyframes progress-sweep {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}
