@@ -14,7 +14,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema_field
 
-from accounts.models import CustomerProfile, User
+from accounts.models import CustomerProfile, StaffProfile, User
 from services.models import Service, ServiceCategory
 from bookings.models import Booking, BookingStatusHistory
 from ev_charging.models import EVChargingBooking, EVChargingStation
@@ -25,12 +25,85 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "email", "username", "role", "first_name", "last_name"]
+        fields = ["id", "email", "username", "role", "first_name", "last_name", "phone"]
         read_only_fields = fields
 
 
 # Backwards-compatible alias — older imports still resolve to the same class.
 MeSerializer = UserProfileSerializer
+
+
+#: Phone is stored free-form (`max_length=20`) and is snapshotted verbatim onto
+#: every booking, so this rule is deliberately loose — digits, an optional
+#: leading `+`, and spaces/dashes as separators, 7 to 15 digits once
+#: separators are stripped. A strict E.164 check would reject numbers the rest
+#: of the app already accepts, and the column has no uniqueness or lookup
+#: riding on it that a bad value could corrupt.
+PHONE_RE = re.compile(r"^\+?[\d\s-]{7,20}$")
+PHONE_DIGITS_MIN = 7
+PHONE_DIGITS_MAX = 15
+
+
+def validate_phone(value):
+    """
+    Shared phone check for registration and profile editing.
+
+    Returns the value stripped of spaces and dashes so the stored form is
+    consistent regardless of how it was typed. Raises a plain string error
+    so DRF renders it as a field-keyed 400.
+    """
+    if not value:
+        return ""
+    if not PHONE_RE.match(value):
+        raise serializers.ValidationError(
+            "Enter a valid phone number (7–15 digits, optional + prefix)."
+        )
+    digits = re.sub(r"[\s-]", "", value)
+    if not PHONE_DIGITS_MIN <= len(digits) <= PHONE_DIGITS_MAX:
+        raise serializers.ValidationError(
+            f"Phone number must be {PHONE_DIGITS_MIN}–{PHONE_DIGITS_MAX} digits."
+        )
+    return digits
+
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """
+    Writable counterpart to :class:`UserProfileSerializer`, used by
+    ``PATCH /api/auth/profile/``.
+
+    Privilege guard
+    ---------------
+    ``id``, ``email``, ``username`` and ``role`` are all ``read_only``.
+    A partial-update body is attacker-controlled, so identity and role are
+    excluded at the *field* level rather than stripped after validation —
+    there is no path by which a ``{"role": "admin"}`` body reaches the
+    model, even if a future refactor forgets a strip loop. Everything the
+    user may change about themselves (name, phone) is explicitly declared.
+
+    The response is rendered with :class:`UserProfileSerializer` by the
+    view, so a client gets the same shape back from PATCH as from GET.
+    """
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "username",
+            "role",
+            "first_name",
+            "last_name",
+            "phone",
+        ]
+        read_only_fields = ["id", "email", "username", "role"]
+        extra_kwargs = {
+            "first_name": {"required": False, "allow_blank": True},
+            "last_name": {"required": False, "allow_blank": True},
+            "phone": {"required": False, "allow_blank": True},
+        }
+
+    def validate_phone(self, value):
+        return validate_phone(value)
 
 
 class TokenResponseSerializer(serializers.Serializer):
@@ -173,6 +246,9 @@ class RegisterSerializer(serializers.Serializer):
         if User.objects.filter(username__iexact=value).exists():
             raise serializers.ValidationError("This username is already taken.")
         return value
+
+    def validate_phone(self, value):
+        return validate_phone(value)
 
     def validate_email(self, value):
         # The stored value is lower-cased so the unique index is case-insensitive
@@ -1113,3 +1189,226 @@ class EVBookingCreateSerializer(serializers.Serializer):
 
         station.refresh_from_db(fields=["available_ports"])
         return booking
+
+
+# ── Admin: staff provisioning & platform analytics ────────────────────────────
+#
+# ``Booking`` snapshots ``service_name`` / ``service_price`` at creation and
+# keeps no foreign key to ``Service``, so the analytics group by the snapshot
+# name rather than by ``ServiceCategory``. That is not a compromise: a
+# booking's revenue should reflect the price the customer actually agreed to,
+# and a service renamed or repriced years later must not silently rewrite
+# what was sold. Grouping is therefore over the snapshot, by construction.
+
+#: Bucket label for EV reservations in `services_breakdown`, which is
+#: otherwise a breakdown of service bookings only.
+EV_BREAKDOWN_LABEL = "EV Charging"
+
+
+class AdminStaffSerializer(serializers.ModelSerializer):
+    """
+    A staff account as the admin's roster renders it.
+
+    ``employee_id`` and ``total_jobs`` are read off the related
+    ``StaffProfile``. They are ``SerializerMethodField`` rather than nested
+    serializers so a staff member with no profile row — an operator promoted
+    straight through Django admin — serialises to ``null`` instead of
+    raising ``RelatedObjectDoesNotExist``. A roster that 500s on one
+    incomplete row is worse than one that shows a blank cell.
+    """
+
+    employee_id = serializers.SerializerMethodField()
+    total_jobs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "phone",
+            "is_active",
+            "date_joined",
+            "employee_id",
+            "total_jobs",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_employee_id(self, obj):
+        profile = getattr(obj, "staff_profile", None)
+        return profile.employee_id if profile else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_total_jobs(self, obj):
+        profile = getattr(obj, "staff_profile", None)
+        return profile.total_jobs if profile else None
+
+
+class AdminStaffCreateSerializer(serializers.Serializer):
+    """
+    Provisions a technician from the admin command centre.
+
+    Privilege guard
+    ---------------
+    ``role``, ``is_staff``, ``is_superuser`` and ``is_active`` are not
+    declared at all. A plain ``Serializer`` never places an undeclared key
+    in ``validated_data``, and :meth:`create` hardcodes every privilege
+    field, so a smuggled ``{"role": "admin"}`` cannot be honoured even in
+    principle. The admin surface can create staff; it cannot mint admins.
+
+    The password runs through Django's configured validators against a
+    throwaway user instance, the same way :class:`RegisterSerializer`
+    does, so a technician account is held to the same policy as a
+    self-service signup.
+    """
+
+    username = serializers.CharField(
+        max_length=USERNAME_MAX_LENGTH,
+        min_length=USERNAME_MIN_LENGTH,
+        help_text=(
+            "3-30 characters. Letters, numbers and underscores only. "
+            "This is the display handle; sign-in works with either it or the email."
+        ),
+    )
+    email = serializers.EmailField(help_text="Unique across all accounts; case-insensitive.")
+    password = serializers.CharField(
+        write_only=True,
+        trim_whitespace=False,
+        style={"input_type": "password"},
+        help_text=(
+            "Temporary password for the technician. Checked against the same "
+            "policy as a self-service signup."
+        ),
+    )
+    first_name = serializers.CharField(
+        max_length=150, required=False, allow_blank=True, default=""
+    )
+    last_name = serializers.CharField(
+        max_length=150, required=False, allow_blank=True, default=""
+    )
+    phone = serializers.CharField(
+        max_length=20, required=False, allow_blank=True, default=""
+    )
+
+    def validate_username(self, value):
+        if not USERNAME_RE.match(value):
+            raise serializers.ValidationError(
+                "Username may only contain letters, numbers and underscores."
+            )
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("This username is already taken.")
+        return value
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("This email address is already in use.")
+        return value.lower()
+
+    def validate_phone(self, value):
+        return validate_phone(value)
+
+    def validate(self, attrs):
+        for forbidden in ("role", "is_staff", "is_superuser", "is_active", "id"):
+            attrs.pop(forbidden, None)
+
+        candidate = User(
+            username=attrs.get("username", ""),
+            email=attrs.get("email", ""),
+            first_name=attrs.get("first_name", ""),
+            last_name=attrs.get("last_name", ""),
+        )
+        try:
+            validate_password(attrs["password"], user=candidate)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"password": list(exc.messages)})
+        return attrs
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        user = User(
+            **validated_data,
+            role=User.Role.STAFF,   # hardcoded — an admin may not mint an admin
+            is_staff=True,          # Django admin + the IsStaffUser fallback
+            is_superuser=False,
+            is_active=True,
+        )
+        user.set_password(password)
+        user.save()
+
+        # A StaffProfile is created alongside the user (mirroring how
+        # registration creates a CustomerProfile) so the new technician has
+        # a generated employee_id and can be counted in the dispatch
+        # workload. `is_staff=True` alone would satisfy IsStaffUser, but a
+        # dispatcher with no profile has no employee number to quote.
+        StaffProfile.objects.create(user=user)
+        return user
+
+
+class AdminActivitySerializer(serializers.Serializer):
+    """
+    One row of the admin's recent-activity feed: a status transition on a
+    booking, newest first.
+
+    Reads ``BookingStatusHistory`` rather than the booking itself, so the
+    feed shows *shifts* — the thing an operator scanning for "who changed
+    what" is looking for — not just current states.
+    """
+
+    booking_id = serializers.IntegerField(help_text="Primary key of the affected booking.")
+    service_name = serializers.CharField(help_text="Snapshotted service name at booking time.")
+    customer_name = serializers.CharField(help_text="Customer the booking belongs to.")
+    previous_status = serializers.CharField(
+        allow_blank=True, help_text="Status before the change; blank for the creating row."
+    )
+    new_status = serializers.CharField(help_text="Status after the change.")
+    changed_by_name = serializers.CharField(
+        allow_null=True, help_text="Who made the change, or null if the actor was removed."
+    )
+    notes = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField()
+
+
+class AdminServiceBreakdownSerializer(serializers.Serializer):
+    """
+    One bucket of ``services_breakdown``.
+
+    Grouped by the booking's snapshotted service name. ``revenue`` is a
+    decimal string — the same wire shape DRF gives money fields everywhere
+    else in this API — so a client must not assume it is a JSON number.
+    """
+
+    label = serializers.CharField(help_text="Service name, or the EV charging bucket.")
+    count = serializers.IntegerField(help_text="Bookings in this bucket.")
+    revenue = serializers.CharField(help_text="Sum of the snapshotted prices, as a decimal string.")
+
+
+class AdminMetricsSerializer(serializers.Serializer):
+    """
+    The platform-wide aggregate behind the admin command centre.
+
+    Documented as a schema rather than returned as a bare dict so the
+    generated client knows the shape; every field is computed server-side
+    with ORM aggregations in :class:`~api.views.AdminMetricsView`.
+    """
+
+    total_revenue = serializers.CharField(
+        help_text=(
+            "Completed service bookings' snapshotted prices plus completed EV "
+            "reservations' estimated costs, as a decimal string."
+        )
+    )
+    total_bookings = serializers.IntegerField(help_text="Service bookings plus EV reservations.")
+    active_jobs = serializers.IntegerField(
+        help_text="Service bookings still open: pending, confirmed or in progress."
+    )
+    completed_jobs = serializers.IntegerField(help_text="Service bookings in the completed status.")
+    cancelled_jobs = serializers.IntegerField(help_text="Service bookings in the cancelled status.")
+    ev_bookings = serializers.IntegerField(help_text="Total EV charging reservations.")
+    registered_customers = serializers.IntegerField(help_text="Accounts with role `customer`.")
+    total_staff = serializers.IntegerField(help_text="Accounts with role `staff`.")
+    active_staff = serializers.IntegerField(help_text="Staff accounts that are still active.")
+    services_breakdown = AdminServiceBreakdownSerializer(many=True)
+    recent_activity = AdminActivitySerializer(many=True)

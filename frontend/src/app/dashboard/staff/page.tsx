@@ -52,6 +52,7 @@ import {
   getStaffBookings,
   assignStaffBooking,
   updateStaffBookingStatus,
+  type BookingDetail,
   type BookingStatus,
   type PaginatedResponse,
   type StaffBooking,
@@ -423,11 +424,23 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
    * `BookingDetail` under. It is included because that payload carries
    * `status_history`: without this a customer sitting on the booking page
    * would keep seeing the pre-transition trail until a manual refresh.
+   *
+   * `refetchType: "inactive"` is load-bearing, not decoration. TanStack's
+   * default is `"active"` — only queries with a live observer refetch — so
+   * a customer's booking tab in *another* window is marked stale and then
+   * left alone. If its entry is later garbage-collected (it has no observer,
+   * so it is the first thing the GC reclaims) the tab remounts and refetches,
+   * and any window where that request is slow or fails leaves the pre-
+   * transition `in_progress` on screen. The reported symptom — a job marked
+   * completed still showing "In progress" to the customer — is this.
+   * Inactive queries are cheap to refetch (the customer is the only one
+   * asking) and being wrong here is the expensive outcome, so the eager
+   * refetch is worth the request.
    */
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["staff-bookings"] });
-    queryClient.invalidateQueries({ queryKey: ["bookings"] });
-    queryClient.invalidateQueries({ queryKey: ["booking"] });
+    queryClient.invalidateQueries({ queryKey: ["staff-bookings"], refetchType: "inactive" });
+    queryClient.invalidateQueries({ queryKey: ["bookings"], refetchType: "inactive" });
+    queryClient.invalidateQueries({ queryKey: ["booking"], refetchType: "inactive" });
   };
 
   const claimMutation = useMutation({
@@ -455,7 +468,24 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
       if (!token) throw new Error("unauthenticated");
       return updateStaffBookingStatus(id, { status, notes }, token);
     },
-    onSuccess: () => {
+    onSuccess: (updated, { id, status }) => {
+      // Seed the fresh status before invalidating, so a concurrent refetch
+      // cannot land an older body on top of it. Invalidation only marks a
+      // query stale; whatever is already in the cache is what renders in the
+      // meantime, and that should be the server's answer, not the previous
+      // status. This is the last line of defence against a completed job
+      // reappearing as in-progress on the customer's screen.
+      //
+      // Only the status is copied across, and only when the cache entry
+      // exists. `updateStaffBookingStatus` returns the *staff* view of the
+      // booking, which carries the customer's phone and email — more than
+      // the customer-facing page needs and more than it had before. Merging
+      // just the status keeps the entry exactly as complete as it was, so
+      // the customer's timeline and history survive a technician's action
+      // instead of being replaced by a differently-shaped body.
+      queryClient.setQueryData<BookingDetail>(["booking", id], (cached) =>
+        cached ? { ...cached, status } : cached,
+      );
       invalidateAll();
       setModal(null);
       setPendingId(null);

@@ -8,6 +8,7 @@ from .views import (
     LoginView,
     MeView,
     RegisterView,
+    ProfileUpdateView,
     ServiceCategoryListView,
     ServiceListView,
     ServiceDetailView,
@@ -22,6 +23,8 @@ from .views import (
     EVBookingListCreateView,
     EVBookingDetailView,
     EVBookingCancelView,
+    AdminStaffListCreateView,
+    AdminMetricsView,
 )
 
 urlpatterns = [
@@ -30,6 +33,11 @@ urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="api-login"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="api-token-refresh"),
     path("auth/me/", MeView.as_view(), name="api-me"),
+    # Profile edit. Any authenticated role may patch its own record — the
+    # view is scoped to `request.user`, so there is no id in the path to
+    # tamper with. Admin and staff accounts use the same endpoint as
+    # customers; only the writable field set is fixed by the serializer.
+    path("auth/profile/", ProfileUpdateView.as_view(), name="api-profile"),
 
     # Services catalogue (public)
     path("service-categories/", ServiceCategoryListView.as_view(), name="api-service-categories"),
@@ -52,4 +60,9 @@ urlpatterns = [
     path("ev/bookings/", EVBookingListCreateView.as_view(), name="api-ev-bookings"),
     path("ev/bookings/<int:pk>/", EVBookingDetailView.as_view(), name="api-ev-booking-detail"),
     path("ev/bookings/<int:pk>/cancel/", EVBookingCancelView.as_view(), name="api-ev-booking-cancel"),
+
+    # Admin command hub (administrators only — guarded by IsAdminUser inside
+    # the views, not by URL placement)
+    path("admin/staff/", AdminStaffListCreateView.as_view(), name="api-admin-staff"),
+    path("admin/metrics/", AdminMetricsView.as_view(), name="api-admin-metrics"),
 ]

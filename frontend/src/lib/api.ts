@@ -22,6 +22,15 @@ export interface UserProfile {
   role: UserRole;
   first_name: string;
   last_name: string;
+  /** Free-form on the way in, normalised to digits by the server on the way out. */
+  phone: string;
+}
+
+/** The only fields `PATCH /auth/profile/` will accept. Identity is not editable. */
+export interface ProfileUpdatePayload {
+  first_name: string;
+  last_name: string;
+  phone: string;
 }
 
 export interface ServiceCategory {
@@ -71,11 +80,51 @@ export interface ServicesParams {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * An error carrying the server's structured validation body.
+ *
+ * `handleResponse` already reduced the body to a single string for the
+ * `Error.message` every existing caller reads. This subclass keeps the whole
+ * thing on `detail` as well, so a *form* can put each message under the
+ * input it belongs to instead of showing the first field's complaint in a
+ * banner and leaving the user to work out which field that was.
+ *
+ * A 4xx from a form endpoint sets `fieldErrors`; a 500, a 4xx with an
+ * unstructured body, or a network drop leaves it empty and the caller falls
+ * back to the message.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+
+  /** `{email: "...", password: "..."}` from a DRF serializer error. */
+  get fieldErrors(): Record<string, string> {
+    if (!this.detail || typeof this.detail !== "object" || Array.isArray(this.detail)) {
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(this.detail as Record<string, unknown>)) {
+      if (key === "detail" || key === "non_field_errors") continue;
+      out[key] = Array.isArray(value) ? value.map(String).join(" ") : String(value);
+    }
+    return out;
+  }
+}
+
 async function handleResponse<T>(res: globalThis.Response): Promise<T> {
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
+    let detail: unknown = null;
     try {
       const body = await res.json();
+      detail = body;
       message =
         body?.detail ??
         body?.non_field_errors?.[0] ??
@@ -84,7 +133,7 @@ async function handleResponse<T>(res: globalThis.Response): Promise<T> {
     } catch {
       /* ignore parse error */
     }
-    throw new Error(String(message));
+    throw new ApiError(String(message), res.status, detail);
   }
   return res.json() as Promise<T>;
 }
@@ -149,6 +198,31 @@ export async function me(accessToken: string): Promise<UserProfile> {
   const res = await fetch(`${API_URL}/auth/me/`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  return handleResponse<UserProfile>(res);
+}
+
+/**
+ * Edit the signed-in user's own profile.
+ *
+ * Sends all three editable fields every time rather than diffing against the
+ * current values. The endpoint is a PATCH, so a subset would be honoured —
+ * but the profile form is a whole record, and a field the user deliberately
+ * blanked must be sent as `""` to be cleared. Diffing would silently drop
+ * that, and "I cleared my phone number and it came back" is a worse bug than
+ * a slightly larger request body.
+ *
+ * There is no user id in the path: the endpoint always edits the token's
+ * own account, so there is nothing for a client to get wrong.
+ */
+export async function updateProfile(
+  payload: ProfileUpdatePayload,
+  accessToken: string,
+): Promise<UserProfile> {
+  const res = await authedFetch(
+    `${API_URL}/auth/profile/`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    accessToken,
+  );
   return handleResponse<UserProfile>(res);
 }
 
@@ -572,4 +646,98 @@ export async function cancelEvBooking(
 /** Every distinct city in the current result set, for the filter dropdown. */
 export function uniqueCities(stations: EvStation[]): string[] {
   return Array.from(new Set(stations.map((s) => s.city).filter(Boolean))).sort();
+}
+
+// ── Admin command hub ─────────────────────────────────────────────────────────
+
+/**
+ * A technician on the admin's roster.
+ *
+ * `employee_id` and `total_jobs` are `null` rather than absent for a staff
+ * account with no `StaffProfile` — an operator promoted straight through
+ * Django admin. The roster renders those cells as a dash rather than
+ * "undefined".
+ */
+export interface AdminStaff {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  is_active: boolean;
+  date_joined: string;
+  employee_id: string | null;
+  total_jobs: number | null;
+}
+
+/**
+ * The provisioning body.
+ *
+ * There is deliberately no `role` or `is_staff` here. The server hardcodes
+ * both, so the type mirrors the contract: this endpoint creates technicians
+ * and cannot mint administrators, and the type system says so.
+ */
+export interface CreateStaffPayload {
+  username: string;
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+}
+
+/** One status transition, for the admin's recent-activity feed. */
+export interface AdminActivity {
+  booking_id: number;
+  service_name: string;
+  customer_name: string;
+  previous_status: string;
+  new_status: string;
+  changed_by_name: string | null;
+  notes: string;
+  created_at: string;
+}
+
+/** One bucket of the services breakdown. `revenue` is a decimal string. */
+export interface AdminServiceBreakdown {
+  label: string;
+  count: number;
+  revenue: string;
+}
+
+export interface AdminMetrics {
+  total_revenue: string;
+  total_bookings: number;
+  active_jobs: number;
+  completed_jobs: number;
+  cancelled_jobs: number;
+  ev_bookings: number;
+  registered_customers: number;
+  total_staff: number;
+  active_staff: number;
+  services_breakdown: AdminServiceBreakdown[];
+  recent_activity: AdminActivity[];
+}
+
+export async function fetchAdminStaff(accessToken: string): Promise<AdminStaff[]> {
+  const res = await authedFetch(`${API_URL}/admin/staff/`, { method: "GET" }, accessToken);
+  return handleResponse<AdminStaff[]>(res);
+}
+
+export async function createStaffMember(
+  payload: CreateStaffPayload,
+  accessToken: string,
+): Promise<AdminStaff> {
+  const res = await authedFetch(
+    `${API_URL}/admin/staff/`,
+    { method: "POST", body: JSON.stringify(payload) },
+    accessToken,
+  );
+  return handleResponse<AdminStaff>(res);
+}
+
+export async function fetchAdminMetrics(accessToken: string): Promise<AdminMetrics> {
+  const res = await authedFetch(`${API_URL}/admin/metrics/`, { method: "GET" }, accessToken);
+  return handleResponse<AdminMetrics>(res);
 }

@@ -3,13 +3,22 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getAuthenticatedUser } from "@/lib/auth";
-import type { UserProfile } from "@/lib/api";
+import type { UserProfile, UserRole } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 import { MotionPage } from "@/components/motion";
 import { Container } from "@/components/ui/Container";
 
 interface DashboardShellProps {
-  expectedRole: "customer" | "staff" | "admin";
+  /**
+   * The role allowed to view this page, or `undefined` for any role.
+   *
+   * Optional rather than a union of "all three" because a page like Profile
+   * is genuinely available to everyone — writing `expectedRole="customer" |
+   * "staff" | "admin"` at each call site would let a future edit narrow it to
+   * one role by accident, and the type would offer no complaint. Omitting the
+   * prop is the honest way to say "any signed-in user".
+   */
+  expectedRole?: UserRole;
   title: string;
   children: (user: UserProfile) => React.ReactNode;
 }
@@ -37,7 +46,9 @@ export function DashboardShell({ expectedRole, title, children }: DashboardShell
         router.replace("/login");
         return;
       }
-      if (u.role !== expectedRole) {
+      // Guarded by the prop's presence, not by its value: a page that
+      // omits `expectedRole` accepts whatever role the token carries.
+      if (expectedRole && u.role !== expectedRole) {
         router.replace(ROLE_REDIRECT[u.role] ?? "/login");
         return;
       }

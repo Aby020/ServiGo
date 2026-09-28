@@ -60,6 +60,40 @@ class IsStaffUser(BasePermission):
 
 
 
+class IsAdminUser(BasePermission):
+    """
+    Allow access only to platform administrators.
+
+    Two independent things qualify someone, exactly as for
+    :class:`IsStaffUser`:
+
+      1. ``role == "admin"`` — the custom-model role set when an operator
+         provisions or promotes an account.
+      2. ``is_superuser`` — Django's own flag.
+
+    Both are checked because an operator raising someone through Django
+    admin flips ``is_superuser`` without touching ``role``, and a role-only
+    guard would lock that operator out of the very screen the promotion
+    was for.
+
+    This is the platform-wide guard: it gates staff provisioning and the
+    analytics aggregate, neither of which should be reachable by a
+    technician. It is intentionally *not* folded into :class:`IsStaffUser`
+    — an admin who also carries ``is_staff`` should still get a 403 here
+    rather than silently passing as a dispatcher, because "who is allowed
+    to create staff accounts" and "who is allowed to claim a job" are
+    different questions with different blast radii.
+    """
+
+    message = "Only administrators can perform this action."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        return _role(user) == "admin" or bool(getattr(user, "is_superuser", False))
+
+
 class IsOwnerOrStaff(BasePermission):
     """
     Object-level: the booking's customer can access, and staff/admin can too.

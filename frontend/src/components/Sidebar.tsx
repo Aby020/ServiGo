@@ -3,27 +3,74 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BarChart3,
   CalendarCheck,
+  ClipboardList,
   LayoutDashboard,
   LogOut,
   User,
+  Users,
   Wrench,
   Zap,
 } from "lucide-react";
 import { clearTokens } from "@/lib/auth";
-import type { UserProfile } from "@/lib/api";
+import type { UserProfile, UserRole } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 
-const sidebarLinks = [
-  { href: "/dashboard/customer", label: "Dashboard", icon: LayoutDashboard, roles: ["customer"] },
-  { href: "/dashboard/staff", label: "Dashboard", icon: LayoutDashboard, roles: ["staff"] },
-  { href: "/dashboard/admin", label: "Dashboard", icon: LayoutDashboard, roles: ["admin"] },
-  { href: "/bookings", label: "My Bookings", icon: CalendarCheck, roles: ["customer", "staff", "admin"] },
-  { href: "/services", label: "Services", icon: Wrench, roles: ["customer", "staff", "admin"] },
-  { href: "/ev", label: "EV Charging", icon: Zap, roles: ["customer", "staff", "admin"] },
-  { href: "/profile", label: "Profile", icon: User, roles: ["customer", "staff", "admin"] },
-];
+interface SidebarLink {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+}
+
+/**
+ * Navigation is defined per role, not filtered from one shared list.
+ *
+ * A `roles: [...]` array on a single list has to be *additive* — every link
+ * is visible to every role unless someone remembers to exclude it — and that
+ * default is exactly how "My Bookings" ended up in the technician's sidebar
+ * pointing at a page that is not theirs. Writing the three sets out whole
+ * makes the absence deliberate: if a technician should not see something, it
+ * is simply not in their array, and a reader can confirm that in one glance
+ * instead of auditing a union of exclusions.
+ *
+ * It also means each role's dashboard is the first item under a name that
+ * describes what it is, so the sidebar no longer needs the de-duplication
+ * dance that three identically-labelled "Dashboard" links forced.
+ */
+const NAV_BY_ROLE: Record<UserRole, SidebarLink[]> = {
+  customer: [
+    { href: "/dashboard/customer", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/bookings", label: "My Bookings", icon: CalendarCheck },
+    { href: "/ev", label: "EV Charging", icon: Zap },
+    { href: "/services", label: "Services", icon: Wrench },
+    { href: "/dashboard/profile", label: "Profile", icon: User },
+  ],
+  staff: [
+    // The dispatch queue is the technician's home: unassigned jobs, their own
+    // jobs, and completed history, all on one screen.
+    { href: "/dashboard/staff", label: "Dispatch queue", icon: ClipboardList },
+    { href: "/dashboard/profile", label: "Profile", icon: User },
+  ],
+  admin: [
+    { href: "/dashboard/admin", label: "Overview", icon: LayoutDashboard },
+    { href: "/dashboard/admin/staff", label: "Staff management", icon: Users },
+    { href: "/dashboard/admin/bookings", label: "Bookings audit", icon: CalendarCheck },
+    { href: "/dashboard/admin/metrics", label: "Platform metrics", icon: BarChart3 },
+    { href: "/dashboard/profile", label: "Profile", icon: User },
+  ],
+};
+
+/**
+ * Links shown before the profile has resolved.
+ *
+ * Empty rather than a default set. Rendering the customer's menu for a
+ * fraction of a second and then swapping it for the technician's is a
+ * visible flash of the wrong navigation; rendering nothing until the role is
+ * known is not.
+ */
+const NAV_PENDING: SidebarLink[] = [];
 
 interface SidebarProps {
   user?: UserProfile;
@@ -35,12 +82,7 @@ export function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const role = user?.role;
 
-  const links = sidebarLinks.filter((l) => !role || l.roles.includes(role));
-  // De-duplicate dashboard link (keep the one matching the role)
-  const dashLinks = links.filter((l) => l.label === "Dashboard");
-  const otherLinks = links.filter((l) => l.label !== "Dashboard");
-  const dashLink = dashLinks.find((l) => role && l.roles.includes(role)) ?? dashLinks[0];
-  const filteredLinks = dashLink ? [dashLink, ...otherLinks] : otherLinks;
+  const links = role ? NAV_BY_ROLE[role] : NAV_PENDING;
 
   function handleLogout() {
     clearTokens();
@@ -77,7 +119,7 @@ export function Sidebar({ user }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0.5 px-3" aria-label="Dashboard">
-        {filteredLinks.map((l) => {
+        {links.map((l) => {
           const Icon = l.icon;
           const active = pathname === l.href || pathname.startsWith(`${l.href}/`);
           return (

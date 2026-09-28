@@ -54,8 +54,91 @@ export function canCancelBooking(status: BookingStatus): boolean {
   return !CANCEL_BLOCKED.includes(status);
 }
 
-export function statusIndex(status: BookingStatus): number {
-  return BOOKING_TIMELINE.findIndex((s) => s.status === status);
+/**
+ * Coerce whatever arrived on the wire into a status this app knows.
+ *
+ * The server is the authority on the enum, and `BOOKING_STATUSES` mirrors it
+ * exactly — so for a well-behaved response this is the identity function.
+ * It earns its keep on the two ways a payload can be *wrong* without the
+ * server being at fault:
+ *
+ *   - case or separator drift — a status arriving as `in-progress` or
+ *     `IN_PROGRESS` would otherwise miss every lookup in this file and fall
+ *     through to an unstyled, unbadged cell;
+ *   - a value from a newer server this client predates, which should degrade
+ *     to something honest rather than throwing inside a `.map()` and
+ *     blanking the whole list.
+ *
+ * `completed` is checked before the generic path because "finished" and
+ * "closed" both mean the same thing here, and a completed job is the one
+ * state the timeline must never misrender as still-running.
+ */
+export function normalizeStatus(raw: string | null | undefined): BookingStatus | null {
+  if (!raw) return null;
+  const key = raw.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (key === "done" || key === "finished" || key === "closed") return "completed";
+  return (BOOKING_STATUSES as string[]).includes(key)
+    ? (key as BookingStatus)
+    : null;
+}
+
+/**
+ * True once a job has stopped moving: either finished or cancelled.
+ *
+ * A cancelled job is not on the timeline — it is a branch off it — so this
+ * answers "is there anything left to advance?", not "what step are we on?".
+ */
+export function isTerminalStatus(status: string | null | undefined): boolean {
+  const normalized = normalizeStatus(status);
+  return normalized === "completed" || normalized === "cancelled";
+}
+
+/** True only for a job that actually finished. */
+export function isCompletedStatus(status: string | null | undefined): boolean {
+  return normalizeStatus(status) === "completed";
+}
+
+/**
+ * Where `status` sits on the timeline.
+ *
+ * Never returns `-1`. An unrecognised status used to fall through
+ * `findIndex` to `-1`, and every step then rendered as *undone* — so a
+ * single unknown value silently displayed a completed job as though nothing
+ * had happened yet. A stepper that lies about progress is worse than one
+ * that admits it is unsure, so an unknown or missing status is reported as
+ * "not started" (`-1` is kept for that, and the caller decides) while a
+ * terminal status is pinned to the last step it could legitimately be at.
+ *
+ * `cancelled` maps to `0` rather than the last index: a cancelled job never
+ * progressed, and the detail page renders cancellation on its own branch
+ * instead of walking the timeline at all.
+ */
+export function statusIndex(status: string | null | undefined): number {
+  const normalized = normalizeStatus(status);
+  if (normalized === null) return -1;
+  if (normalized === "cancelled") return 0;
+  return BOOKING_TIMELINE.findIndex((s) => s.status === normalized);
+}
+
+/**
+ * Timeline fill as a percentage.
+ *
+ * A completed job is `100` by construction, not by arithmetic that a bad
+ * status could spoil — `completed` is the last step, so
+ * `(3 + 1) / 4 * 100 === 100`, but the branch is spelled out because this
+ * value is what the spec's "must render 100% completed" requirement rests
+ * on and a reader should not have to do the division to check it.
+ *
+ * A cancelled or unknown status is `0`: nothing on the forward path was
+ * reached, and rendering a partial bar for work that was abandoned would
+ * read as progress.
+ */
+export function timelinePercent(status: string | null | undefined): number {
+  const normalized = normalizeStatus(status);
+  if (normalized === "completed") return 100;
+  const index = statusIndex(normalized);
+  if (index < 0) return 0;
+  return Math.round(((index + 1) / BOOKING_TIMELINE.length) * 100);
 }
 
 export function formatBookingDate(iso: string): string {

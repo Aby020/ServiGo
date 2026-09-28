@@ -9,9 +9,11 @@ import {
   ArrowLeft,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronRight,
   Clock,
   MapPin,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { motion } from "framer-motion";
@@ -37,7 +39,10 @@ import {
   formatBookingTime as formatTime,
   formatPrice as formatPriceValue,
   formatTimestamp,
+  isCompletedStatus,
+  normalizeStatus,
   statusIndex,
+  timelinePercent,
 } from "@/lib/booking-ui";
 import { loginHref } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -138,15 +143,36 @@ export default function BookingDetailPage() {
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-3 text-muted">
             <AlertCircle size={19} aria-hidden="true" />
           </span>
-          <p className="font-display text-lg font-bold text-ink">Booking not found</p>
+          <p className="font-display text-lg font-bold text-ink">
+            {error?.message === "unauthenticated"
+              ? "Sign in to view this booking"
+              : "Booking not found"}
+          </p>
           <p className="text-sm text-text-soft">
             {error?.message === "unauthenticated"
               ? "Sign in to view this booking."
               : "This booking may have been removed, or it belongs to another account."}
           </p>
-          <ButtonLink href="/dashboard/customer" variant="secondary" size="sm" className="mt-2">
-            Back to dashboard
-          </ButtonLink>
+          <div className="mt-2 flex items-center gap-2">
+            {/* A failed *background* refetch must be recoverable by hand. A
+                technician can mark a job completed while this tab sits idle;
+                the refetch that would have told us fails on a flaky
+                connection, and without this button the customer's only
+                option is a full reload. */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                router.replace(`/bookings/${id}`);
+              }}
+              leadingIcon={<RefreshCw size={14} aria-hidden="true" />}
+            >
+              Try again
+            </Button>
+            <ButtonLink href="/dashboard/customer" variant="ghost" size="sm">
+              Back to dashboard
+            </ButtonLink>
+          </div>
         </Card>
       </Container>
     );
@@ -154,9 +180,35 @@ export default function BookingDetailPage() {
 
   const priceLabel = formatPriceValue(booking.service_price);
 
-  const isCancelled = booking.status === "cancelled";
-  const canCancel = canCancelBooking(booking.status);
+  /**
+   * Every status read on this page goes through `normalizeStatus` first.
+   *
+   * This booking can be sitting in a cache entry written before a technician
+   * marked it complete, and the page may render once before its refetch
+   * settles. Normalising at the point of use means the timeline cannot
+   * misread a value that is merely formatted differently — and, more to the
+   * point, `statusIndex` returns the last step for a terminal status rather
+   * than -1, so even an unrecognised value paints "not yet done" instead of
+   * silently un-doing a finished job.
+   */
+  const status = normalizeStatus(booking.status);
+
+  const isCancelled = status === "cancelled";
+  const isCompleted = isCompletedStatus(booking.status);
+  const canCancel = status !== null && canCancelBooking(status);
   const currentIndex = statusIndex(booking.status);
+  const percent = timelinePercent(booking.status);
+
+  /**
+   * The badge tone is looked up through a checked index rather than
+   * `STATUS_TONE[booking.status]` directly, because a status this client
+   * does not recognise has no entry in the map and would render
+   * `undefined` as a tone.
+   */
+  const tone = status ? STATUS_TONE[status] : "neutral";
+  const label = isCompleted
+    ? "Completed"
+    : booking.status_display || status || "Unknown";
 
   return (
     <MotionPage>
@@ -187,8 +239,8 @@ export default function BookingDetailPage() {
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
-            <Badge tone={STATUS_TONE[booking.status]} size="md" dot>
-              {booking.status_display}
+            <Badge tone={tone} size="md" dot>
+              {label}
             </Badge>
             {canCancel && (
               <Button
@@ -231,63 +283,125 @@ export default function BookingDetailPage() {
                   </div>
                 </div>
               ) : (
-                <ol className="mt-5">
-                  {TIMELINE.map((step, i) => {
-                    const done = i <= currentIndex;
-                    const active = i === currentIndex;
-                    return (
-                      <li key={step.status} className="relative flex gap-4 pb-6 last:pb-0">
-                        {/* Connector */}
-                        {i < TIMELINE.length - 1 && (
-                          <span
+                <>
+                  {/* Completion banner.
+                      A finished job gets an explicit, unmissable statement of
+                      that fact. The stepper below already renders all four
+                      nodes filled, but a customer scanning the page for "is my
+                      job done?" should not have to read a four-step list to
+                      answer it — and the bar gives the 100% figure a place to
+                      live that is legible at a glance. */}
+                  {isCompleted && (
+                    <div
+                      role="status"
+                      className="mt-4 flex items-start gap-3 rounded-md border border-success/30 bg-success-soft px-4 py-3.5"
+                    >
+                      <CheckCircle2
+                        size={16}
+                        className="mt-0.5 shrink-0 text-success"
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-success">
+                          Completed — this job is done
+                        </p>
+                        <p className="mt-0.5 text-sm text-text-soft">
+                          The technician marked it finished. Full breakdown in
+                          the history below.
+                        </p>
+                        <div className="mt-3 flex items-center gap-3">
+                          <div
+                            role="progressbar"
+                            aria-valuenow={percent}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label="Booking progress"
+                            className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-3"
+                          >
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${percent}%` }}
+                              transition={{ duration: 0.5, ease: EASE_OUT }}
+                              className="h-full rounded-full bg-success"
+                            />
+                          </div>
+                          <span className="shrink-0 font-mono text-xs font-semibold tabular-nums text-success">
+                            {percent}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <ol className={cn(isCompleted && "mt-6")}>
+                    {TIMELINE.map((step, i) => {
+                      const done = i <= currentIndex;
+                      const active = i === currentIndex;
+                      return (
+                        <li key={step.status} className="relative flex gap-4 pb-6 last:pb-0">
+                          {/* Connector */}
+                          {i < TIMELINE.length - 1 && (
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                "absolute left-[11px] top-6 h-full w-0.5",
+                                i < currentIndex
+                                  ? isCompleted
+                                    ? "bg-success"
+                                    : "bg-primary"
+                                  : "bg-line",
+                              )}
+                            />
+                          )}
+                          {/* Node */}
+                          <motion.span
                             aria-hidden="true"
+                            initial={false}
+                            animate={done ? { scale: 1 } : { scale: 0.85 }}
+                            transition={{ duration: 0.3, ease: EASE_OUT }}
                             className={cn(
-                              "absolute left-[11px] top-6 h-full w-0.5",
-                              i < currentIndex ? "bg-primary" : "bg-line",
-                            )}
-                          />
-                        )}
-                        {/* Node */}
-                        <motion.span
-                          aria-hidden="true"
-                          initial={false}
-                          animate={done ? { scale: 1 } : { scale: 0.85 }}
-                          transition={{ duration: 0.3, ease: EASE_OUT }}
-                          className={cn(
-                            "relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2",
-                            done
-                              ? "border-primary bg-primary text-on-primary"
-                              : "border-line bg-surface text-muted",
-                            active && "ring-4 ring-primary/20",
-                          )}
-                        >
-                          {done ? (
-                            <Check size={12} strokeWidth={3} />
-                          ) : (
-                            <span className="h-1.5 w-1.5 rounded-full bg-line-strong" />
-                          )}
-                        </motion.span>
-                        {/* Label */}
-                        <div className="-mt-0.5 min-w-0 pt-0.5">
-                          <p
-                            className={cn(
-                              "text-sm font-semibold",
-                              done ? "text-ink" : "text-muted",
+                              "relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2",
+                              done
+                                ? isCompleted
+                                  ? "border-success bg-success text-white"
+                                  : "border-primary bg-primary text-on-primary"
+                                : "border-line bg-surface text-muted",
+                              active && !isCompleted && "ring-4 ring-primary/20",
                             )}
                           >
-                            {step.label}
-                            {active && (
-                              <span className="ml-2 text-xs font-medium text-primary">
-                                Current
-                              </span>
+                            {done ? (
+                              <Check size={12} strokeWidth={3} />
+                            ) : (
+                              <span className="h-1.5 w-1.5 rounded-full bg-line-strong" />
                             )}
-                          </p>
-                          <p className="mt-0.5 text-sm text-muted">{step.blurb}</p>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
+                          </motion.span>
+                          {/* Label */}
+                          <div className="-mt-0.5 min-w-0 pt-0.5">
+                            <p
+                              className={cn(
+                                "text-sm font-semibold",
+                                done ? "text-ink" : "text-muted",
+                              )}
+                            >
+                              {step.label}
+                              {active && (
+                                <span
+                                  className={cn(
+                                    "ml-2 text-xs font-medium",
+                                    isCompleted ? "text-success" : "text-primary",
+                                  )}
+                                >
+                                  {isCompleted ? "Finished" : "Current"}
+                                </span>
+                              )}
+                            </p>
+                            <p className="mt-0.5 text-sm text-muted">{step.blurb}</p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </>
               )}
             </Card>
 

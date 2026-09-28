@@ -10,7 +10,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import F, Q
+from django.db.models import F, Q, Value
 from django.db.models.functions import Least
 from django.utils import timezone
 from drf_spectacular.utils import (
@@ -26,6 +26,7 @@ from .serializers import (
     RegisterSerializer,
     TokenResponseSerializer,
     UserProfileSerializer,
+    UserProfileUpdateSerializer,
     ServiceCategorySerializer,
     ServiceSerializer,
     ServiceDetailSerializer,
@@ -40,14 +41,21 @@ from .serializers import (
     EVBookingSerializer,
     EVStationDetailSerializer,
     EVStationSerializer,
+    AdminActivitySerializer,
+    AdminMetricsSerializer,
+    AdminStaffCreateSerializer,
+    AdminStaffSerializer,
+    EV_BREAKDOWN_LABEL,
     SLOT_DURATION_MINUTES,
 )
-from .permissions import IsCustomer, IsOwnerOrStaff, IsStaffUser
+from .permissions import IsCustomer, IsOwnerOrStaff, IsStaffUser, IsAdminUser
 from accounts.models import User
 from services.models import Service, ServiceCategory
 from bookings.models import Booking, BookingStatusHistory
 from ev_charging.models import EVChargingBooking, EVChargingStation
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.db.models import Count, Sum
+from django.db.models.functions import Coalesce
 
 
 @extend_schema_view(
@@ -150,6 +158,47 @@ class MeView(APIView):
     def get(self, request):
         serializer = UserProfileSerializer(request.user)
         return Response(serializer.data)
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Update the current user's profile",
+        description=(
+            "Edits the caller's own profile. Only `first_name`, `last_name` "
+            "and `phone` are writable — `id`, `email`, `username` and `role` "
+            "are read-only at the serializer's field level, so a body "
+            "carrying `{\"role\": \"admin\"}` is ignored rather than "
+            "partially applied.\n\n"
+            "Fields left out of the body keep their current values; a partial "
+            "update is never treated as a reset. The response is the same "
+            "shape `GET /api/auth/me/` returns, so a client can overwrite its "
+            "cached profile with it directly."
+        ),
+        request=UserProfileUpdateSerializer,
+        responses={
+            200: UserProfileSerializer,
+            400: OpenApiResponse(description="Validation error"),
+            401: OpenApiResponse(description="Unauthorized"),
+        },
+        tags=["Auth"],
+    ),
+)
+class ProfileUpdateView(APIView):
+    """PATCH /api/auth/profile/ — update the authenticated user's own fields."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        serializer = UserProfileUpdateSerializer(
+            request.user, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        # Re-read the saved instance rather than returning `serializer.data`:
+        # the latter is pre-save, so any `updated_at`-style server-managed
+        # field would come back stale. Cheap, and keeps the response
+        # identical in shape to GET /auth/me/.
+        return Response(UserProfileSerializer(request.user).data)
 
 
 # ── Services ──────────────────────────────────────────────────────────────────
@@ -1130,3 +1179,259 @@ class EVBookingCancelView(APIView):
 
         booking.refresh_from_db()
         return Response(EVBookingSerializer(booking).data)
+
+
+# ── Admin command hub ──────────────────────────────────────────────────────────
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="List staff accounts",
+        description=(
+            "Returns the technician roster, newest joiner first.\n\n"
+            "Includes every account with `role=\"staff\"` regardless of "
+            "`is_active`, so a deactivated technician stays visible with a "
+            "badge rather than vanishing from the roster — an operator "
+            "deactivating someone needs to see them to remember why. `role` "
+            "is what is counted, not `is_staff`: the latter is a separate "
+            "Django-admin flag and the two are set independently in "
+            "practice.\n\n"
+            "Each row carries `employee_id` and `total_jobs` read off the "
+            "related `StaffProfile`, or `null` for an account promoted without "
+            "one."
+        ),
+        responses={
+            200: AdminStaffSerializer(many=True),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not an administrator"),
+        },
+        tags=["Admin"],
+    ),
+    post=extend_schema(
+        summary="Provision a new staff account",
+        description=(
+            "Creates a technician account. The response is the created staff "
+            "row, identical in shape to one entry of the `GET` list, so the "
+            "admin table can re-read rather than splice.\n\n"
+            "The account is always created with `role=\"staff\"` and "
+            "`is_staff=True`. `role`, `is_staff`, `is_superuser` and "
+            "`is_active` are not writable — sending them is ignored, not "
+            "honoured, so this endpoint can create staff but cannot mint an "
+            "administrator. A `StaffProfile` is created alongside the user so "
+            "the technician gets a generated `employee_id` and can be counted "
+            "in the dispatch workload immediately.\n\n"
+            "The password is checked against Django's configured validators, "
+            "the same policy a self-service signup meets. It is never echoed "
+            "back — share it out of band."
+        ),
+        request=AdminStaffCreateSerializer,
+        responses={
+            201: AdminStaffSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "Validation error — username or email already taken, weak "
+                    "password, or malformed phone number."
+                )
+            ),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not an administrator"),
+        },
+        tags=["Admin"],
+    ),
+)
+class AdminStaffListCreateView(APIView):
+    """
+    GET / POST /api/admin/staff/ — the roster, and provisioning into it.
+
+    One view rather than a ``ListCreateAPIView`` because the response is a
+    bare array rather than a paginated envelope: a roster is bounded by the
+    size of the workforce, not by the number of bookings on the platform, so
+    pagination would be machinery with nothing to manage. The booking and
+    service endpoints paginate because those grow without bound; this one
+    does not.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request):
+        staff = (
+            User.objects.filter(role=User.Role.STAFF)
+            # `staff_profile` is the related_name; selecting it makes the
+            # SerializerMethodFields read the joined row instead of firing
+            # one query per staff member.
+            .select_related("staff_profile")
+            .order_by("-date_joined")
+        )
+        return Response(AdminStaffSerializer(staff, many=True).data)
+
+    def post(self, request):
+        serializer = AdminStaffCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(
+            AdminStaffSerializer(user).data, status=status.HTTP_201_CREATED
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Platform metrics",
+        description=(
+            "The platform-wide aggregate behind the admin command centre, "
+            "computed in one pass with ORM aggregations and returned in a "
+            "single request.\n\n"
+            "Every monetary figure is derived from the price **snapshotted on "
+            "the booking at creation**, never from the live `Service` row, so "
+            "repricing a service does not retroactively change what past "
+            "bookings are worth. `total_revenue` counts completed work only — "
+            "service bookings' `service_price` plus completed EV "
+            "reservations' `estimated_cost` — and excludes pending, "
+            "in-progress and cancelled rows.\n\n"
+            "`services_breakdown` is grouped by that same snapshotted service "
+            "name rather than by `ServiceCategory`: `Booking` keeps no "
+            "foreign key to either, so a categorical split would not survive "
+            "a rename. A synthetic `\"EV Charging\"` bucket carries the EV "
+            "reservations, which have no service name of their own. Money "
+            "values are decimal strings, matching every other money field in "
+            "this API.\n\n"
+            "`recent_activity` is the five most recent status transitions "
+            "across all bookings, from `BookingStatusHistory` — it reports "
+            "*shifts*, not current states, so it answers \"who changed what\". "
+            "It covers service bookings only; EV reservations are tracked by "
+            "timestamps on the reservation itself and have no history table."
+        ),
+        responses={
+            200: AdminMetricsSerializer,
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not an administrator"),
+        },
+        tags=["Admin"],
+    ),
+)
+class AdminMetricsView(APIView):
+    """
+    GET /api/admin/metrics/ — the platform aggregate.
+
+    Read-only by construction: there is no write path here, so the view
+    cannot mutate the figures it reports. Each figure is a separate
+    aggregation rather than a loop in Python over fetched rows, so the
+    cost is a fixed handful of COUNT/SUM round-trips no matter how large
+    the tables grow.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request):
+        completed = Booking.Status.COMPLETED
+        # Statuses that still represent work to be done. `cancelled` is
+        # excluded: a cancelled booking is finished being, not work in
+        # hand, and counting it as "active" would inflate the dispatch
+        # queue an operator is trying to reason about.
+        open_statuses = [
+            Booking.Status.PENDING,
+            Booking.Status.CONFIRMED,
+            Booking.Status.IN_PROGRESS,
+        ]
+
+        # Coalesce turns the aggregate's NULL (an empty table sums to NULL)
+        # into a real 0. Without it a brand-new platform reports "revenue:
+        # null" and every client needs a null guard for a case that is
+        # simply zero. The fallback is a Decimal because the summed columns
+        # are money — a bare 0 would make Coalesce an expression of mixed
+        # types and Django would refuse to resolve its output field.
+        zero = Value(decimal.Decimal("0.00"))
+        service_revenue = Booking.objects.filter(status=completed).aggregate(
+            total=Coalesce(Sum("service_price"), zero)
+        )["total"]
+        ev_revenue = EVChargingBooking.objects.filter(
+            status=EVChargingBooking.Status.COMPLETED
+        ).aggregate(total=Coalesce(Sum("estimated_cost"), zero))["total"]
+
+        breakdown = list(
+            Booking.objects.values("service_name")
+            .annotate(
+                count=Count("id"),
+                # Value(0) rather than a bare 0: `service_price` is a
+                # DecimalField, so a plain integer fallback makes Coalesce
+                # an expression of mixed types and Django refuses to resolve
+                # the output field. Coalesce returns its fallback unchanged,
+                # so a Decimal zero keeps the whole annotation monetary.
+                revenue=Coalesce(Sum("service_price"), Value(decimal.Decimal("0.00"))),
+            )
+            .order_by("-count", "service_name")
+        )
+
+        ev_bucket = EVChargingBooking.objects.aggregate(
+            count=Count("id"),
+            revenue=Coalesce(Sum("estimated_cost"), Value(decimal.Decimal("0.00"))),
+        )
+        services_breakdown = [
+            {
+                "label": row["service_name"],
+                "count": row["count"],
+                "revenue": row["revenue"],
+            }
+            for row in breakdown
+        ]
+        if ev_bucket["count"]:
+            # Appended rather than merged: EV reservations have no service
+            # name, so folding them into a bucket would mean labelling
+            # someone's revenue as a service that does not exist.
+            services_breakdown.append(
+                {
+                    "label": EV_BREAKDOWN_LABEL,
+                    "count": ev_bucket["count"],
+                    "revenue": ev_bucket["revenue"],
+                }
+            )
+
+        # select_related both FKs because the feed renders a booking's
+        # service and a history row's actor on every line.
+        history = BookingStatusHistory.objects.select_related(
+            "booking", "changed_by"
+        ).order_by("-created_at")[:5]
+
+        recent_activity = [
+            {
+                "booking_id": row.booking_id,
+                "service_name": row.booking.service_name,
+                "customer_name": row.booking.customer_name,
+                "previous_status": row.previous_status,
+                "new_status": row.new_status,
+                "changed_by_name": (
+                    row.changed_by.get_full_name() or row.changed_by.username
+                    if row.changed_by_id
+                    else None
+                ),
+                "notes": row.notes,
+                "created_at": row.created_at,
+            }
+            for row in history
+        ]
+
+        payload = {
+            # Decimal all the way through: `decimal.Decimal + int` is exact,
+            # whereas `float + Decimal` raises TypeError. The two revenues
+            # are strings on the wire via the serializer's CharField.
+            "total_revenue": decimal.Decimal(service_revenue)
+            + decimal.Decimal(ev_revenue),
+            "total_bookings": Booking.objects.count()
+            + EVChargingBooking.objects.count(),
+            "active_jobs": Booking.objects.filter(status__in=open_statuses).count(),
+            "completed_jobs": Booking.objects.filter(status=completed).count(),
+            "cancelled_jobs": Booking.objects.filter(
+                status=Booking.Status.CANCELLED
+            ).count(),
+            "ev_bookings": EVChargingBooking.objects.count(),
+            "registered_customers": User.objects.filter(
+                role=User.Role.CUSTOMER
+            ).count(),
+            "total_staff": User.objects.filter(role=User.Role.STAFF).count(),
+            "active_staff": User.objects.filter(
+                role=User.Role.STAFF, is_active=True
+            ).count(),
+            "services_breakdown": services_breakdown,
+            "recent_activity": recent_activity,
+        }
+
+        return Response(AdminMetricsSerializer(payload).data)
