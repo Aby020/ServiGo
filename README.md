@@ -1,335 +1,414 @@
 <div align="center">
 
-# ☑️ ServiGo
+# ⚡ ServiGo
 
-### Home Services & EV Charging Booking Platform
+### Enterprise Urban Services & EV Mobility Platform
 
-A full-featured web application that connects customers with verified local service professionals — electricians, plumbers, and Smart TV experts — alongside a live network of EV charging stations with slot booking. Built on **Django 5.2** with role-based dashboards for customers, staff, and administrators.
+**A production-grade marketplace that connects urban residents with verified service professionals — electricians, plumbers, and Smart TV technicians — alongside a live network of EV charging stations with real-time bay reservation.**
 
-![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white&style=flat-square)
-![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django&style=flat-square)
-![Bootstrap](https://img.shields.io/badge/Bootstrap-5-7952B3?logo=bootstrap&logoColor=white&style=flat-square)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white&style=flat-square)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?logo=postgresql&logoColor=white&style=flat-square)
-![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
+Django 5.2 + Django REST Framework backend. Next.js 16 App Router frontend. Role-isolated dashboards for customers, staff, and administrators.
+
+[![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django&style=flat-square)](https://www.djangoproject.com/)
+[![DRF](https://img.shields.io/badge/DRF-3.15-ff1709?logo=django&style=flat-square)](https://www.django-rest-framework.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&style=flat-square)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&style=flat-square)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.1-06B6D4?logo=tailwindcss&style=flat-square)](https://tailwindcss.com/)
+[![TanStack Query](https://img.shields.io/badge/TanStack_Query-v5-FF4154?logo=reactquery&style=flat-square)](https://tanstack.com/query)
+[![Leaflet](https://img.shields.io/badge/Leaflet-1.9-3C7BB6?logo=leaflet&style=flat-square)](https://leafletjs.com/)
+[![JWT](https://img.shields.io/badge/JWT-simplejwt-000000?logo=jsonwebtokens&style=flat-square)](https://github.com/jazzband/djangorestframework-simplejwt)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0-6BA539?logo=openapiinitiative&style=flat-square)](https://spec.openapis.org/oas/v3.0.3)
+[![Tests](https://img.shields.io/badge/tests-165_passing-21A366?logo=pytest&style=flat-square)](#testing--quality-assurance)
+
+---
+
+`Django REST API` · `Next.js App Router` · `PostgreSQL / SQLite` · `Role-Based Access Control` · `Concurrency-Safe Reservations`
 
 </div>
 
-<p align="center">
-  <img src="screenshots/servigo_home_page.gif" alt="ServiGo home page — hero, search, featured services and EV charging" width="90%">
-</p>
+---
+
+## 📑 Table of Contents
+
+- [System Architecture](#-system-architecture)
+- [Engineering Highlights](#-engineering-highlights)
+- [Role Matrix & Demo Accounts](#-role-matrix--demo-accounts)
+- [Local Setup](#-local-setup)
+- [API Documentation](#-api-documentation)
+- [API Surface](#-api-surface)
+- [Testing & Quality Assurance](#-testing--quality-assurance)
+- [Project Layout](#-project-layout)
 
 ---
 
-## 📖 Project Overview
+## 🏗️ System Architecture
 
-ServiGo simplifies the way people manage home maintenance and electric vehicle charging — through a single, user-friendly platform.
+ServiGo is a two-tier system: a **stateless JSON API gateway** that owns all business rules, and a **server-rendered React client** that owns presentation. Every authorization decision lives server-side — the frontend is a rendering layer, never a gate.
 
-Customers can quickly book professional services such as electrical repairs, plumbing, and Smart TV maintenance, or reserve a slot at a nearby EV charging station. Staff and administrators get powerful tools to manage bookings, services, customers, and operational workflows — all from dedicated role-based dashboards.
+```mermaid
+graph TB
+    subgraph Client["Next.js 16 — App Router Client"]
+        direction TB
+        RSC["Server Components<br/><i>SSR / static prerender</i>"]
+        CC["Client Components<br/><i>interactive islands</i>"]
+        TL["Leaflet Geolocation Engine<br/><i>zero-SSR dynamic loader</i>"]
+        SS["Session Store<br/><i>useSyncExternalStore</i>"]
+        IMG["Image Pipeline<br/><i>AVIF → WebP negotiation</i>"]
+        RSC --> CC
+        CC --> TL
+        CC --> SS
+        CC --> IMG
+    end
 
-Built with Django and Bootstrap 5, ServiGo focuses on usability, security, and maintainability while demonstrating a practical implementation of authentication, CRUD operations, email notifications, role-based access control, and responsive web design.
+    subgraph Gateway["Django REST Framework — API Gateway :8004"]
+        direction TB
+        AUTH["Auth Service<br/><i>SimpleJWT · refresh rotation</i>"]
+        PERM["Authorization Layer<br/><i>IsOwnerOrStaff · IsStaffUser · IsAdminUser</i>"]
+        SCHEMA["OpenAPI Schema Layer<br/><i>drf-spectacular</i>"]
+        AUTH --> PERM
+    end
 
----
+    subgraph Services["Service Modules"]
+        direction TB
+        BOOK["Booking State Machine<br/><i>pending → confirmed → in_progress → completed</i>"]
+        EV["EV Reservation Engine<br/><i>F() atomic bay decrement</i>"]
+        GEO["Leaflet Geolocation Service<br/><i>station discovery & routing</i>"]
+        ADMIN["Admin Aggregation Hub<br/><i>staff provisioning · metrics</i>"]
+        AUDIT["Append-Only Audit Trail<br/><i>BookingStatusHistory</i>"]
+    end
 
-## ✨ Key Features
+    subgraph Data["Persistence Layer"]
+        direction TB
+        DB[("Relational Store<br/><i>SQLite dev · PostgreSQL prod</i>")]
+        CACHE[("Static & Media Pipeline<br/><i>Whitenoise · Image Optimizer</i>")]
+    end
 
-| Area | Feature | What it does |
-| ---- | ------- | ------------ |
-| 🔐 **Authentication** | Secure registration & login | Email-or-username login with a custom `User` model (email as the unique identifier) |
-| 🔐 **Authentication** | Role-based access | Customers, staff, and administrators each get their own portal and permissions |
-| 🔐 **Authentication** | Password reset | Self-service recovery via email |
-| 🛠️ **Services** | Service catalogue | Browse electrical, plumbing, and Smart TV services with detailed pricing |
-| 🛠️ **Services** | Category pages | Dedicated pages per service category |
-| 📅 **Bookings** | Service booking flow | Date, time, location and notes with a live price summary |
-| 📅 **Bookings** | Email confirmation | Customers receive booking confirmations by email |
-| 📅 **Bookings** | Status workflow | Pending → Confirmed → Completed (or Cancelled) with audit history |
-| ⚡ **EV Charging** | Station search | Find stations by name, address, city, state, or pincode |
-| ⚡ **EV Charging** | Filters | Charger-type and price filters plus an available-only toggle |
-| ⚡ **EV Charging** | Slot booking | Reserve charging slots with Google Maps location integration |
-| 📊 **Dashboards** | Customer dashboard | Upcoming service and EV bookings at a glance |
-| 📊 **Dashboards** | Staff dashboard | Today's bookings and operational workload |
-| 📊 **Dashboards** | Admin dashboard | Full-platform stats with recent service and EV bookings |
-| 📧 **Contact** | Contact form | Inquiry form with email notifications |
+    CC -->|"HTTPS / JSON + Bearer JWT"| AUTH
+    SS -.->|"token persistence"| AUTH
+    TL --> GEO
+    PERM --> BOOK
+    PERM --> EV
+    PERM --> ADMIN
+    AUTH --> SCHEMA
+    BOOK --> AUDIT
+    EV --> AUDIT
+    BOOK --> DB
+    EV --> DB
+    GEO --> DB
+    ADMIN --> DB
+    DB --> CACHE
+    CACHE --> IMG
 
----
+    classDef client fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef gateway fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#4c1d95
+    classDef service fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef data fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f
 
-## 👤 User Roles
-
-| Role | What they can do |
-| ---- | ---------------- |
-| **Customer** | Browse services and EV stations, book appointments, manage their own bookings, and view booking history |
-| **Staff** | View and manage service bookings, update booking statuses, and monitor daily service operations |
-| **Admin** | Full administrative control — manage users, services, stations, bookings, and view platform-wide analytics |
-
-> **Note:** Only `customer` and `staff` can self-register through the public form. Admin accounts are created only via `seed_demo` or the Django admin panel — preventing self-service privilege escalation.
-
----
-
-## 🛠️ Technology Stack
-
-| Category | Technologies |
-| -------- | ------------ |
-| **Backend** | Python 3.12, Django 5.2 |
-| **Frontend** | HTML5, CSS3, Bootstrap 5, JavaScript |
-| **Database** | SQLite (development) · PostgreSQL (production, via `DATABASE_URL`) |
-| **Authentication** | Custom `User` model · email-or-username backend |
-| **Forms** | Django Crispy Forms · Crispy Bootstrap 5 |
-| **Configuration** | django-environ (environment variables) |
-| **Media / Assets** | Pillow, Django static & media handling |
-| **Dev Tooling** | django-browser-reload |
-| **Deployment Ready** | Virtual environments, `.env` configuration |
-
----
-
-## 🔄 Core Workflows
-
-```text
-                Client Browser
-                      │
-                      ▼
-           Bootstrap 5 Responsive UI
-                      │
-                      ▼
-              Django URL Routing
-                      │
-                      ▼
-             Django Views & Logic
-      ┌───────────────┼────────────────┐
-      ▼               ▼                ▼
- Authentication  Booking Module   EV Charging
-      │               │                │
-      └───────────────┼────────────────┘
-                      ▼
-                SQLite / PostgreSQL
-                      │
-                      ▼
-            Email Notifications
+    class RSC,CC,TL,SS,IMG client
+    class AUTH,PERM,SCHEMA gateway
+    class BOOK,EV,GEO,ADMIN,AUDIT service
+    class DB,CACHE data
 ```
 
-**Service booking flow**
+**Request lifecycle.** A browser request hits the Next.js App Router, which renders on the server and hydrates on the client. Authenticated calls carry a JWT bearer token to the DRF gateway. The gateway authenticates, applies the **Authorization Layer** (object-level permissions evaluated per-resource, never per-route), routes to a service module, and persists through Django's ORM. Responses return as JSON; the client invalidates the TanStack Query cache rather than refetching imperatively.
 
-```text
-Browse Services → Select a Service → Fill Date/Time & Location
-    → Book → Confirmation Email → Track Status in Dashboard
-```
+**Defense in depth.** The four layers below are independent — a mistake in one does not open the system, because the next one still holds:
 
-**EV charging flow**
-
-```text
-Search Stations → Filter by Location/Charger/Price → View Station Details
-    → Pick a Slot → Confirm → Manage Booking in Dashboard
-```
+| Layer | Enforces |
+| ----- | -------- |
+| **Client** | Zod schema validation on every mutation before it reaches the network |
+| **Gateway** | JWT authentication, then coarse role permission (`IsCustomer`, `IsStaffUser`, `IsAdminUser`) |
+| **Object** | `IsOwnerOrStaff` — tenant scoping evaluated per object, not per route |
+| **Data** | Server-authoritative derived values (pricing, capacity) that ignore client input |
 
 ---
 
-## 📸 Screenshots
+## 💎 Engineering Highlights
 
-### 🏠 Landing Page
-<p align="center">
-  <img src="screenshots/servigo-home-page.png" alt="ServiGo home page" width="90%">
-  <br>
-  <em>Home page — hero, search, and featured services</em>
-</p>
+### 🔒 Zero-Trust Security
 
-### 🔐 Authentication
-<p align="center">
-  <img src="screenshots/servigo-login-page.png" alt="Login page" width="90%">
-  <img src="screenshots/servigo-registration-page.png" alt="Registration page" width="90%">
-  <br>
-  <em>Secure login and role-based registration</em>
-</p>
+**Anti-IDOR object permissions.** `IsOwnerOrStaff` is the platform's tenant boundary. It grants access on exactly one of two conditions: the caller is genuinely privileged, or the caller *is* the record's owner.
 
-### 📝 Service Booking
-<p align="center">
-  <img src="screenshots/servigo-booking-management.png" alt="Service booking form" width="90%">
-  <br>
-  <em>Schedule a visit — date, time, location, and booking summary</em>
-</p>
-<p align="center">
-  <img src="screenshots/servigo-booking-success.png" alt="Booking success" width="90%">
-  <img src="screenshots/servigo-booking-details.png" alt="Booking details" width="90%">
-  <br>
-  <em>Booking confirmation and detailed booking view</em>
-</p>
+The subtlety worth calling out: privilege must be determined by the **value** of a flag, never by its **presence**. The original implementation branched on `hasattr(user, "is_staff_user")`, which answers "does this attribute exist?" — and since `is_staff_user` is a `@property` on the user model, it exists for *every* account, customer included. The property's own return value was never consulted. The result was a textbook Insecure Direct Object Reference: any authenticated user could read any other customer's booking by changing the id in the URL.
 
-### ⚡ EV Charging
-<p align="center">
-  <img src="screenshots/servigo-ev-station-details.png" alt="EV station details" width="90%">
-  <img src="screenshots/servigo-ev-booking-form.png" alt="EV booking form" width="90%">
-  <br>
-  <em>Station details and charging slot booking</em>
-</p>
+```python
+# ❌ Attribute presence is not consent — every account passes this branch.
+if hasattr(user, "is_staff_user") and user.is_staff_user:
+    return True
 
-### 👨‍💼 Staff Dashboard
-<p align="center">
-  <img src="screenshots/servigo-staff-dashboard.png" alt="Staff dashboard" width="90%">
-  <img src="screenshots/servigo-staff-bookings.png" alt="Staff bookings list" width="90%">
-  <br>
-  <em>Operational overview and booking management</em>
-</p>
-
-### 🛡️ Admin Panel
-<p align="center">
-  <img src="screenshots/servigo-admin-booking-history.png" alt="Admin booking history" width="90%">
-  <br>
-  <em>Booking status histories in the Django admin</em>
-</p>
-
-### 📧 Contact & About
-<p align="center">
-  <img src="screenshots/servigo-contact-page.png" alt="Contact page" width="90%">
-  <img src="screenshots/servigo_about_page.gif" alt="About page" width="90%">
-  <br>
-  <em>Contact form and about page</em>
-</p>
-
----
-
-## 📂 Project Structure
-
-```text
-ServiGo/
-├── accounts/          # Custom User, authentication, registration, profiles
-├── services/          # Service categories & catalogue, image handling
-├── bookings/          # Service bookings, status workflow & history
-├── ev_charging/       # EV stations & charging slot bookings
-├── dashboard/         # Role-based dashboards (customer / staff / admin)
-├── core/              # Home, About, Contact & shared context
-├── config/            # Django project settings (settings, urls, wsgi)
-├── templates/         # Shared + per-app HTML templates
-├── static/            # CSS, JS, images
-├── media/             # User-uploaded media
-├── tests/             # Test suite (per-app packages)
-├── scripts/           # Dev helpers (run_dev.ps1)
-├── screenshots/       # README screenshots
-├── manage.py
-├── requirements.txt
-└── .env.example
+# ✅ Value of the flag, coerced to a real boolean, decides.
+is_staff = _role(user) in PRIVILEGED_ROLES
 ```
 
+The hardened version resolves ownership from `obj.customer_id` — a plain id comparison, no extra query, no dependence on a cached related object that a caller could manipulate before the check runs. `tests/api/test_permissions.py` locks the behaviour in with 18 tests, including the cross-tenant 403, enumeration resistance, and a direct assertion that privilege is *never* decided by attribute presence.
+
+**Server-authoritative economics.** A client cannot quote itself a cheaper charging session. `estimated_cost` is always recomputed from the station's own `price_per_kwh` row, never read from the request payload — a tampered client gets the real price or a 400.
+
+**Documented API surface.** `drf-spectacular` generates the OpenAPI 3 schema from the serializers themselves, so the docs cannot drift from the code that enforces them. Enum names are explicitly overridden to keep the schema stable across unrelated changes — and, more importantly, to stop a *service booking* status from ever being sent where an *EV reservation* status is expected. Read-only fields are excluded from `required` arrays, so generated clients are never told to send server-owned fields like `role`.
+
+### ⚡ Concurrency-Safe Reservations
+
+The last charging bay at a station is the classic oversell race: two requests read `available_ports == 1`, both decide they may reserve, and the station is now double-booked.
+
+ServiGo resolves this **in the database, not in Python** — the `UPDATE` statement itself is the guard:
+
+```python
+held = (
+    EVChargingStation.objects.filter(pk=station.pk, available_ports__gt=0)
+    .update(available_ports=F("available_ports") - 1)
+)
+if not held:
+    booking.delete()   # undo the write; never leave a phantom reservation
+    raise ValidationError({"station_id": "Every bay was just reserved."})
+```
+
+Three properties make this correct under load:
+
+1. **`F()` expressions** evaluate in the database, so the read-modify-write is a single atomic `UPDATE` — no lost updates.
+2. **The condition is in the `WHERE` clause**, not in Python. The row is claimed and decremented or the statement affects nothing; there is no window between "check" and "act".
+3. **Compensating delete on failure.** The booking row is written before the counter is claimed, so a lost race explicitly unwinds the write rather than leaving an orphan reservation against a station with nothing left.
+
+Cancelling reverses the operation with the same `F()` discipline, clamping at `total_ports` so a double-cancel cannot inflate availability beyond physical capacity.
+
+### 🧭 Audit Trail & State Machine
+
+Every booking status change writes an **append-only** `BookingStatusHistory` row recording the previous status, the new status, the acting user, and a timestamp. History is never updated or deleted — the record of what happened is more valuable than the convenience of editing it.
+
+Transitions are role-gated: customers may cancel their own pending booking, staff may claim and progress jobs they are assigned, and terminal states (`completed`, `cancelled`) are refused for further movement. The staff-side write is asserted in tests to include `changed_by` — because the *customer's* timeline renders the technician's name, and a history row written without it would leave the audit trail silently anonymous.
+
+### ⚛️ Client-Side Optimization
+
+**Zero-SSR Leaflet.** Leaflet touches `window` at import time, so it is loaded through a dynamic `ssr: false` boundary and rendered only in the browser. A static import would break the server render outright.
+
+**Deterministic hydration.** Session presence is read via `useSyncExternalStore`, not `useState` + `useEffect`. The server snapshot is `false` (no `localStorage` on the server); the client re-reads immediately after hydration. The two agree on first render and diverge only afterwards — the sanctioned pattern for reading something the server cannot see, and it avoids the extra render pass that seeding state in an effect costs. The snapshot is a boolean, so it is `Object.is`-stable and will not loop.
+
+**Negotiated image delivery.** The category and service photography runs 175–300 KB per image, a dozen of them on the home page. AVIF and WebP variants are negotiated per-request via `Accept`, with the original JPEG as the fallback for browsers supporting neither — no sniffing round-trip, no broken image. The longest edge is capped at 1920px so a 4K upload is never re-encoded at 3840px for a card that never paints more than ~640px.
+
 ---
 
-## 🚀 Installation & Setup
+## 👥 Role Matrix & Demo Accounts
 
-**Prerequisites:** Python 3.12, Git.
+Access is decided by a custom `User.role` field, checked against Django's native `is_staff` / `is_superuser` flags. Only a genuinely privileged caller reaches another tenant's record.
+
+| Capability | 👤 Customer | 🔧 Staff | 🛡️ Admin |
+| ---------- | :---------: | :------: | :------: |
+| Browse services & EV stations | ✅ | ✅ | ✅ |
+| Create a booking / reserve a bay | ✅ | — | — |
+| Read **own** bookings | ✅ | ✅ | ✅ |
+| Read **any** booking | ❌ | ✅ | ✅ |
+| Cancel own pending booking | ✅ | — | — |
+| Claim & progress assigned jobs | ❌ | ✅ | — |
+| Change booking status | ❌ | ✅ | ✅ |
+| View staff dispatch queue | ❌ | ✅ | ✅ |
+| Provision staff accounts | ❌ | ❌ | ✅ |
+| Platform-wide metrics | ❌ | ❌ | ✅ |
+
+> **Privilege escalation is closed at registration.** Only `customer` and `staff` may self-register through the public form. The `role` field is server-owned and read-only on the wire; admin accounts exist only via the seed command or Django admin.
+
+### Demo Accounts
+
+| Role | Email | Password | Lands on |
+| ---- | ----- | -------- | -------- |
+| 👤 Customer | `customer@servigo.com` | `customer12345` | Customer dashboard |
+| 🔧 Staff | `staff@servigo.com` | `staff12345` | Staff dispatch queue |
+| 🛡️ Admin | `admin@servigo.com` | `admin12345` | Admin aggregation hub |
+
+> ⚠️ **Demo credentials only.** These exist for local evaluation against a seeded database. Any real deployment must rotate them and serve over HTTPS — JWTs issued over plaintext are trivially interceptable.
+
+---
+
+## 🚀 Local Setup
+
+**Prerequisites:** Python 3.12+, Node.js 20+, npm 10+.
+
+### 1. Backend
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/Aby020/ServiGo.git
-cd ServiGo
+# Clone and enter the project
+cd D:\AbiLabs\ServiGo
 
-# 2. Create and activate a virtual environment
+# Create and activate a virtual environment
 python -m venv venv
 venv\Scripts\activate          # Windows
-# source venv/bin/activate    # macOS / Linux
+# source venv/bin/activate     # macOS / Linux
 
-# 3. Install dependencies
+# Install dependencies
 pip install -r requirements.txt
 
-# 4. Configure environment variables
-Copy-Item .env.example .env   # Windows PowerShell
-# cp .env.example .env        # macOS / Linux
+# Configure the environment
+copy .env.example .env         # Windows
+# cp .env.example .env         # macOS / Linux
+# Generate a secret key and paste it into .env:
+#   python -c "import secrets; print(secrets.token_urlsafe(50))"
 
-# 5. Apply database migrations
+# Create the database and seed demo data
 python manage.py migrate
+python manage.py seed_demo     # creates the three demo accounts above
 
-# 6. Seed demo data (categories, services, EV stations, demo users)
-python manage.py seed_demo
-
-# 7. Run the development server
+# Start the API server
 python manage.py runserver 127.0.0.1:8004
 ```
 
-Open <http://127.0.0.1:8004> in your browser.
+Backend is live at **http://127.0.0.1:8004** — API at `/api/`, Swagger UI at `/api/docs/`.
 
-On Windows you can use the shortcut launcher instead:
+> A convenience launcher is included: `.\scripts\run_dev.ps1 [port]` starts the server on the project venv with the correct Django version.
 
-```powershell
-.\scripts\run_dev.ps1          # starts on 127.0.0.1:8000
-```
-
-### 👥 Demo Accounts
-
-`seed_demo` creates the following accounts:
-
-| Role | Email | Password |
-| ---- | ----- | -------- |
-| **Admin** | `admin@servigo.com` | `admin12345` |
-| **Staff** | `staff@servigo.com` | `staff12345` |
-| **Customer** | `customer@servigo.com` | `customer12345` |
-
-### 🛡️ Create an Admin Account Manually
+### 2. Frontend
 
 ```bash
-python manage.py createsuperuser
+cd D:\AbiLabs\ServiGo\frontend
+
+# Install dependencies
+npm install
+
+# Configure the API endpoint
+copy .env.example .env.local   # Windows — already points at http://127.0.0.1:8004
+
+# Start the dev server
+npm run dev
+```
+
+Frontend is live at **http://localhost:3000**.
+
+> **Port pairing matters.** The frontend calls `NEXT_PUBLIC_API_URL`; Django's CORS allowlist permits `localhost:3000` and `127.0.0.1:3000` only. Changing either port means updating both sides or the browser will reject every call.
+
+### 3. Verify the install
+
+```bash
+# Backend test suite — 165 tests
+python manage.py test tests
+
+# OpenAPI schema validation — expect 0 warnings, exit code 0
+python manage.py spectacular --validate
+
+# Frontend production build — expect 0 errors
+cd frontend && npm run build
 ```
 
 ---
 
-## ⚙️ Environment Variables
+## 📚 API Documentation
 
-Create a `.env` file in the project root (or rely on sensible defaults):
+The schema is generated from the serializers by `drf-spectacular`, so it is impossible for the published contract to drift from the enforced one.
 
-| Variable | Description | Default |
-| -------- | ----------- | ------- |
-| `SECRET_KEY` | Django secret key — set a strong value in production | generated dev key |
-| `DEBUG` | Debug mode (`True`/`False`) | `True` |
-| `ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost,127.0.0.1,testserver` |
-| `DATABASE_URL` | Production database URL (e.g. PostgreSQL) | SQLite (dev) |
-| `EMAIL_HOST` / `EMAIL_PORT` / etc. | SMTP settings for booking confirmation emails | console email (dev) |
+| Resource | URL | What it serves |
+| -------- | --- | -------------- |
+| **Swagger UI** | `/api/docs/` | Interactive explorer — try every endpoint with a bearer token |
+| **OpenAPI schema** | `/api/schema/` | Raw OpenAPI 3.0 document (YAML) |
+| **Schema only** | `/api/schema/swagger-ui/` | ReDoc reference rendering of the same document |
 
----
+Validate the schema at any time — the command exits non-zero and prints every warning:
 
-## 🔒 Security
-
-- **Custom `User` model** with email as the unique identifier — username login still supported via an email-or-username backend.
-- **Role-restricted public registration** — only `customer` and `staff` can sign up through the public form; `admin` is created only via `seed_demo` or the Django admin, preventing self-service privilege escalation.
-- **Role-based access control** — staff/admin views are gated by dedicated mixins; dashboards and booking data are filtered per user.
-- **Open-redirect protection** — the login `next` parameter is validated with `url_has_allowed_host_and_scheme`.
-- **Session-based auth** with Django's built-in password hashing.
+```bash
+python manage.py spectacular --validate
+```
 
 ---
 
-## 🗺️ Roadmap
+## 🔌 API Surface
 
-- [x] Authentication & registration with role selection
-- [x] Service catalogue and category pages
-- [x] Service booking flow with email confirmation
-- [x] EV charging stations and slot booking
-- [x] Customer, staff, and admin dashboards
-- [x] Booking status workflow with audit history
-- [ ] Online payment integration
-- [ ] Customer reviews & ratings per service
-- [ ] Real-time booking availability
-- [ ] Mobile app (React Native / Flutter)
+All routes are prefixed with `/api/`. Authenticated endpoints require an `Authorization: Bearer <access_token>` header; obtain one from `POST /api/auth/login/`.
+
+### Authentication
+
+| Method | Endpoint | Access | Description |
+| ------ | -------- | ------ | ----------- |
+| `POST` | `/api/auth/register/` | Public | Create a customer or staff account |
+| `POST` | `/api/auth/login/` | Public | Exchange credentials for an access + refresh pair |
+| `POST` | `/api/auth/refresh/` | Refresh token | Rotate the access token |
+| `GET` | `/api/auth/me/` | Authenticated | Current user profile and role |
+| `PATCH` | `/api/auth/profile/` | Authenticated | Update own profile (scoped to the caller) |
+
+### Catalogue
+
+| Method | Endpoint | Access | Description |
+| ------ | -------- | ------ | ----------- |
+| `GET` | `/api/service-categories/` | Public | Service categories |
+| `GET` | `/api/services/` | Public | Service catalogue, paginated |
+| `GET` | `/api/services/<id>/` | Public | Service detail |
+| `GET` | `/api/ev/stations/` | Public | EV stations — filter by city, charger type, price, availability |
+| `GET` | `/api/ev/stations/<id>/` | Public | Station detail with live port availability |
+
+### Bookings
+
+| Method | Endpoint | Access | Description |
+| ------ | -------- | ------ | ----------- |
+| `GET` | `/api/bookings/` | Authenticated | Own bookings (staff and admin: all) |
+| `POST` | `/api/bookings/` | Customer | Create a booking |
+| `GET` | `/api/bookings/<id>/` | Owner, staff, admin | Booking detail with its audit trail |
+| `POST` | `/api/bookings/<id>/cancel/` | Owner | Cancel a pending or confirmed booking |
+
+> **Cross-tenant access returns `403 Forbidden`, not `404`.** A customer requesting another customer's booking id is refused explicitly, and the response body contains no part of the victim's record. See `tests/api/test_permissions.py`.
+
+### EV Charging
+
+| Method | Endpoint | Access | Description |
+| ------ | -------- | ------ | ----------- |
+| `GET` | `/api/ev/bookings/` | Authenticated | Own reservations (staff and admin: all) |
+| `POST` | `/api/ev/bookings/` | Customer | Reserve a bay — atomically, cost derived server-side |
+| `GET` | `/api/ev/bookings/<id>/` | Owner, staff, admin | Reservation detail |
+| `POST` | `/api/ev/bookings/<id>/cancel/` | Owner | Cancel and return the bay to the pool |
+
+### Staff & Admin
+
+| Method | Endpoint | Access | Description |
+| ------ | -------- | ------ | ----------- |
+| `GET` | `/api/staff/bookings/` | Staff | Dispatch queue — filter by `assigned=unassigned\|mine\|all` |
+| `POST` | `/api/staff/bookings/<id>/assign/` | Staff | Claim a job; writes an audit row |
+| `POST` | `/api/staff/bookings/<id>/status/` | Staff | Advance the booking state machine |
+| `GET` | `/api/admin/staff/` | Admin | List staff accounts |
+| `POST` | `/api/admin/staff/` | Admin | Provision a staff account |
+| `GET` | `/api/admin/metrics/` | Admin | Platform-wide aggregate statistics |
 
 ---
 
-## 👤 Author
+## 🧪 Testing & Quality Assurance
+
+```bash
+python manage.py test tests          # 165 tests
+```
+
+| Suite | Focus |
+| ----- | ----- |
+| `tests/api/test_permissions.py` | Cross-tenant authorization — the 403 regression and its neighbourhood |
+| `tests/api/test_staff_dispatch.py` | Dispatch queue, job claiming, legal vs. illegal status transitions |
+| `tests/api/test_admin.py` | Admin-only guards on provisioning and metrics |
+| `tests/api/test_register.py` | Registration, role assignment, privilege-escalation attempts |
+| `tests/accounts/` | Custom user model, role properties, backends, forms |
+
+Authorization tests are written to fail if the security property is ever weakened again — the cross-tenant 403 is asserted as an exact status code, and the response body is checked for leakage of the victim's email and price.
+
+---
+
+## 📁 Project Layout
+
+```
+ServiGo/
+├── config/                  # Django settings, root URLconf, WSGI
+├── accounts/                # Custom User model, auth backends, password reset
+├── services/                # Service catalogue (categories, services)
+├── bookings/                # Booking model, state machine, status history
+├── ev_charging/             # EV stations, reservations, bay inventory
+├── dashboard/               # Role-scoped server-rendered dashboards
+├── api/                     # DRF views, serializers, permissions, OpenAPI schema
+├── core/                    # Home, about, contact
+├── tests/                   # Test suite (165 tests)
+├── scripts/                 # Dev launcher, auth & EV smoke verification
+├── frontend/                # Next.js 16 App Router (TypeScript, Tailwind 4)
+│   ├── src/app/             # Route segments (bookings, dashboard, ev, services)
+│   ├── src/components/      # Reusable UI
+│   └── src/lib/             # API client, session store, image + form helpers
+├── requirements.txt
+└── manage.py
+```
+
+---
+
+## 📄 License
+
+Released under the **MIT License**.
+
+---
 
 <div align="center">
-
-### Abi Thomas
-
-**Full-Stack Developer**
-
-<p>
-  <a href="https://github.com/Aby020">
-    <img src="https://img.shields.io/badge/GitHub-Aby020-181717?logo=github">
-  </a>
-  <a href="https://linkedin.com/in/abithomas-dev">
-    <img src="https://img.shields.io/badge/LinkedIn-Abi%20Thomas-0A66C2?logo=linkedin">
-  </a>
-</p>
-
-</div>
-
-## 🤝 Support
-
-For questions, feature requests, or bug reports, please open an [issue](https://github.com/Aby020/ServiGo/issues) on GitHub.
-
-<div align="center">
-
-**Made with ❤️ by Abi Thomas**
-
+  <sub>Built with Django, Next.js, and an unreasonable amount of care about authorization.</sub>
 </div>

@@ -20,7 +20,11 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 urlpatterns = [
     # Admin
@@ -32,6 +36,13 @@ urlpatterns = [
     # API docs
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    # Redoc reference rendering of the same document. Handy for reading the
+    # API top-to-bottom; Swagger UI above stays the one to poke endpoints with.
+    path(
+        "api/schema/swagger-ui/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
 
     # Core app - home, about, contact, etc.
     path("", include("core.urls", namespace="core")),

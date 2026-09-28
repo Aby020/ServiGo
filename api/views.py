@@ -48,7 +48,7 @@ from .serializers import (
     EV_BREAKDOWN_LABEL,
     SLOT_DURATION_MINUTES,
 )
-from .permissions import IsCustomer, IsOwnerOrStaff, IsStaffUser, IsAdminUser
+from .permissions import IsCustomer, IsOwnerOrStaff, IsStaffUser, IsAdminUser, _is_privileged
 from accounts.models import User
 from services.models import Service, ServiceCategory
 from bookings.models import Booking, BookingStatusHistory
@@ -355,10 +355,7 @@ class BookingListCreateView(APIView):
 
     def get(self, request):
         user = request.user
-        is_staff_or_admin = (
-            getattr(user, "is_staff_user", False)
-            or getattr(user, "is_admin_user", False)
-        )
+        is_staff_or_admin = _is_privileged(user)
         if is_staff_or_admin:
             qs = Booking.objects.select_related("customer", "assigned_staff").order_by("-created_at")
         else:
@@ -996,10 +993,7 @@ class EVBookingListCreateView(APIView):
 
     def get(self, request):
         user = request.user
-        is_staff_or_admin = (
-            getattr(user, "is_staff_user", False)
-            or getattr(user, "is_admin_user", False)
-        )
+        is_staff_or_admin = _is_privileged(user)
         qs = EVChargingBooking.objects.select_related("station")
         if not is_staff_or_admin:
             qs = qs.filter(customer=user)
