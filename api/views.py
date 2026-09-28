@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import F, Q
 from django.db.models.functions import Least
+from django.utils import timezone
 from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
@@ -31,13 +32,17 @@ from .serializers import (
     BookingSerializer,
     BookingDetailSerializer,
     BookingCreateSerializer,
+    StaffBookingSerializer,
+    StaffBookingDetailSerializer,
+    StaffBookingAssignSerializer,
+    StaffBookingStatusSerializer,
     EVBookingCreateSerializer,
     EVBookingSerializer,
     EVStationDetailSerializer,
     EVStationSerializer,
     SLOT_DURATION_MINUTES,
 )
-from .permissions import IsCustomer, IsOwnerOrStaff
+from .permissions import IsCustomer, IsOwnerOrStaff, IsStaffUser
 from accounts.models import User
 from services.models import Service, ServiceCategory
 from bookings.models import Booking, BookingStatusHistory
@@ -428,6 +433,275 @@ class BookingCancelView(APIView):
             Booking.objects.prefetch_related("status_history__changed_by").get(pk=pk)
         )
         return Response(serializer.data)
+
+
+# ── Staff dispatch ────────────────────────────────────────────────────────────
+
+#: `?assigned=` values. `unassigned` and `mine` are the two queue tabs the
+#: staff dashboard renders; `all` is the unfiltered backlog.
+ASSIGNED_FILTERS = {"unassigned", "mine", "all"}
+
+
+def _staff_name(user) -> str:
+    """Human-readable name for the audit trail, never an empty string."""
+    if not user:
+        return ""
+    return user.get_full_name() or user.username
+
+
+class StaffBookingListView(APIView):
+    """
+    GET /api/staff/bookings/ — the dispatch queue.
+
+    Filters:
+      - `status`   one or more of the Booking.Status values.
+      - `assigned` `unassigned` | `mine` | `all` (default `all`).
+
+    Ordering is by preferred slot, not by creation time. The dispatch desk
+    asks "what needs attention next", which is the soonest appointment —
+    a queue ordered newest-first buries tomorrow's job under a backlog of
+    older ones. `preferred_time` is a TimeField and `preferred_date` a
+    DateField, so both are concatenated into a single sortable expression
+    rather than compared field-by-field.
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+    pagination_class = BookingPagination
+
+    def get_queryset(self, user):
+        qs = Booking.objects.select_related(
+            "customer", "assigned_staff"
+        ).prefetch_related("status_history__changed_by")
+
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            wanted = [s for s in status_param.split(",") if s.strip()]
+            valid = {c[0] for c in Booking.Status.choices}
+            unknown = [s for s in wanted if s not in valid]
+            if unknown:
+                raise ValidationError(
+                    {
+                        "status": (
+                            f"Unknown status: {', '.join(unknown)}. "
+                            f"Choose from: {', '.join(sorted(valid))}."
+                        )
+                    }
+                )
+            qs = qs.filter(status__in=wanted)
+
+        assigned = (self.request.query_params.get("assigned") or "all").strip().lower()
+        if assigned not in ASSIGNED_FILTERS:
+            raise ValidationError(
+                {
+                    "assigned": (
+                        f"Unknown value: {assigned}. "
+                        f"Choose from: {', '.join(sorted(ASSIGNED_FILTERS))}."
+                    )
+                }
+            )
+        if assigned == "unassigned":
+            qs = qs.filter(assigned_staff__isnull=True)
+        elif assigned == "mine":
+            qs = qs.filter(assigned_staff=user)
+
+        return qs.order_by("preferred_date", "preferred_time", "id")
+
+    @extend_schema(
+        summary="List bookings for the dispatch queue",
+        description=(
+            "Returns bookings a staff member may act on, including the "
+            "customer contact snapshot and the current assignee. Filter with "
+            "`status` (comma-separated Booking.Status values) and `assigned` "
+            "(`unassigned`, `mine`, `all`). Ordered by preferred appointment "
+            "so the soonest job is first."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "status",
+                str,
+                description=(
+                    "Comma-separated status filter. One or more of: "
+                    "pending, confirmed, in_progress, completed, cancelled."
+                ),
+            ),
+            OpenApiParameter(
+                "assigned",
+                str,
+                description=(
+                    "Queue filter. `unassigned` = nobody has claimed it, "
+                    "`mine` = assigned to the caller, `all` = no filter."
+                ),
+                enum=sorted(ASSIGNED_FILTERS),
+            ),
+            OpenApiParameter("page", int, description="Page number."),
+            OpenApiParameter("page_size", int, description="Results per page (max 50)."),
+        ],
+        responses={
+            200: StaffBookingSerializer(many=True),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not service staff"),
+            400: OpenApiResponse(description="Invalid status or assigned filter"),
+        },
+        tags=["Staff"],
+    )
+    def get(self, request):
+        qs = self.get_queryset(request.user)
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(qs, request)
+        serializer = StaffBookingSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+
+class StaffBookingAssignView(APIView):
+    """
+    POST /api/staff/bookings/<id>/assign/ — claim a job.
+
+    Always assigns to the caller; there is deliberately no way to assign a
+    job to a *different* user through this endpoint. Re-claiming a job that
+    is already the caller's is a no-op that returns 200 rather than an error,
+    so a double-click on the "Claim" button is harmless.
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get_booking(self, pk):
+        try:
+            return Booking.objects.prefetch_related(
+                "status_history__changed_by"
+            ).get(pk=pk)
+        except Booking.DoesNotExist:
+            return None
+
+    @extend_schema(
+        summary="Claim (assign) a booking for the current staff member",
+        description=(
+            "Assigns the booking to the authenticated caller and appends a "
+            "`BookingStatusHistory` entry reading 'Assigned to technician "
+            "<name>'. Claiming a job already assigned to the caller is a "
+            "no-op. A job that is cancelled or completed cannot be claimed."
+        ),
+        request=StaffBookingAssignSerializer,
+        responses={
+            200: StaffBookingDetailSerializer,
+            400: OpenApiResponse(description="Booking is cancelled or completed"),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not service staff"),
+            404: OpenApiResponse(description="Booking not found"),
+        },
+        tags=["Staff"],
+    )
+    def post(self, request, pk):
+        booking = self.get_booking(pk)
+        if booking is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.status in (Booking.Status.CANCELLED, Booking.Status.COMPLETED):
+            return Response(
+                {
+                    "detail": (
+                        f"This booking is {booking.get_status_display().lower()} "
+                        "and cannot be assigned."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Idempotent: re-claiming your own job adds no second audit row.
+        if booking.assigned_staff_id == request.user.id:
+            return Response(StaffBookingDetailSerializer(booking).data)
+
+        booking.assigned_staff = request.user
+        booking.save(update_fields=["assigned_staff", "updated_at"])
+
+        BookingStatusHistory.objects.create(
+            booking=booking,
+            previous_status=booking.status,
+            new_status=booking.status,
+            changed_by=request.user,
+            notes=f"Assigned to technician {_staff_name(request.user)}",
+        )
+
+        booking.refresh_from_db()
+        return Response(StaffBookingDetailSerializer(booking).data)
+
+
+class StaffBookingStatusView(APIView):
+    """
+    POST /api/staff/bookings/<id>/status/ — move a job to a new status.
+
+    The transition rules live in `StaffBookingStatusSerializer` so that they
+    are enforced identically whether a change arrives from the dispatch
+    dashboard, the admin, or a future mobile client. This view only owns the
+    persistence side effects: the `confirmed_at` / `completed_at` stamps and
+    the audit row.
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get_booking(self, pk):
+        try:
+            return Booking.objects.prefetch_related(
+                "status_history__changed_by"
+            ).get(pk=pk)
+        except Booking.DoesNotExist:
+            return None
+
+    @extend_schema(
+        summary="Update the status of a booking",
+        description=(
+            "Moves a booking into `status`, optionally recording `notes` that "
+            "the customer sees on their booking timeline. Refused when the "
+            "booking is already cancelled or completed, when the status is "
+            "unchanged, or when the booking is assigned to another "
+            "technician. Appends a `BookingStatusHistory` row carrying the "
+            "previous status, the new status, the acting user and the notes."
+        ),
+        request=StaffBookingStatusSerializer,
+        responses={
+            200: StaffBookingDetailSerializer,
+            400: OpenApiResponse(description="Illegal status transition"),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not service staff"),
+            404: OpenApiResponse(description="Booking not found"),
+        },
+        tags=["Staff"],
+    )
+    def post(self, request, pk):
+        booking = self.get_booking(pk)
+        if booking is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StaffBookingStatusSerializer(
+            data=request.data,
+            context={"booking": booking, "actor": request.user},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        previous_status = booking.status
+        new_status = serializer.validated_data["status"]
+
+        booking.status = new_status
+        update_fields = ["status", "updated_at"]
+        if new_status == Booking.Status.COMPLETED and booking.completed_at is None:
+            booking.completed_at = timezone.now()
+            update_fields.append("completed_at")
+        if new_status == Booking.Status.CONFIRMED and booking.confirmed_at is None:
+            booking.confirmed_at = timezone.now()
+            update_fields.append("confirmed_at")
+
+        booking.save(update_fields=update_fields)
+
+        notes = (serializer.validated_data.get("notes") or "").strip()
+        BookingStatusHistory.objects.create(
+            booking=booking,
+            previous_status=previous_status,
+            new_status=new_status,
+            changed_by=request.user,
+            notes=notes,
+        )
+
+        booking.refresh_from_db()
+        return Response(StaffBookingDetailSerializer(booking).data)
 
 
 # ── EV charging ───────────────────────────────────────────────────────────────

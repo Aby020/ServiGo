@@ -389,6 +389,124 @@ class BookingDetailSerializer(BookingSerializer):
         fields = BookingSerializer.Meta.fields + ["status_history"]
 
 
+class StaffBookingSerializer(BookingSerializer):
+    """
+    A booking as the dispatch desk needs to see it.
+
+    `BookingSerializer` deliberately omits the customer's contact details — it
+    is also the customer-facing list payload, and a customer must not be able
+    to read another customer's phone number by listing their own bookings.
+    The dispatch queue is the one surface where the technician actually needs
+    to call the customer, so this subclass adds the contact snapshot plus the
+    current assignee, and stays on staff-gated routes only.
+    """
+
+    customer_name = serializers.CharField(read_only=True)
+    customer_email = serializers.EmailField(read_only=True)
+    customer_phone = serializers.CharField(read_only=True)
+    assigned_staff_id = serializers.IntegerField(read_only=True)
+    assigned_staff_name = serializers.SerializerMethodField()
+
+    class Meta(BookingSerializer.Meta):
+        fields = BookingSerializer.Meta.fields + [
+            "customer_name",
+            "customer_email",
+            "customer_phone",
+            "assigned_staff_id",
+            "assigned_staff_name",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_assigned_staff_name(self, obj):
+        if obj.assigned_staff:
+            return obj.assigned_staff.get_full_name()
+        return None
+
+
+class StaffBookingDetailSerializer(StaffBookingSerializer):
+    """Dispatch view of a booking, including the audit trail."""
+
+    status_history = BookingStatusHistorySerializer(many=True, read_only=True)
+
+    class Meta(StaffBookingSerializer.Meta):
+        fields = StaffBookingSerializer.Meta.fields + ["status_history"]
+
+
+class StaffBookingAssignSerializer(serializers.Serializer):
+    """
+    Request body for claiming a job. Intentionally empty.
+
+    A claim always assigns to the *authenticated* caller, so the body has
+    nothing to carry. Declaring it (rather than passing `request=None`)
+    keeps the generated client from implying a body is required and stops a
+    caller "helpfully" posting `{"staff_id": 7}` to assign someone else.
+    """
+
+    def validate(self, attrs):
+        return attrs
+
+
+class StaffBookingStatusSerializer(serializers.Serializer):
+    """
+    Validates a staff-initiated status change.
+
+    Two layers of guard, because they answer different questions:
+
+      * ``validate_status`` rejects a status the *model* doesn't define. That
+        is a field-validation failure and belongs in a 400 with a field key, so
+        a generated client can tell it apart from a business-rule refusal.
+      * ``validate`` rejects a status the *booking* can't legally move to
+        right now — terminal-state and no-op rules. This one is a
+        business-rule failure, so it raises a plain `ValidationError` that
+        renders as a 400 with a single `detail` key.
+    """
+
+    status = serializers.ChoiceField(
+        choices=Booking.Status.choices,
+        help_text="The status to move the booking into.",
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text=(
+            "Free-text note recorded against the transition and shown to the "
+            "customer on their booking timeline."
+        ),
+    )
+
+    #: Statuses a booking can never leave. Completing or cancelling a job is
+    #: terminal: a technician who realises they marked the wrong job done
+    #: needs a human to reopen it, not a second click.
+    TERMINAL_STATUSES = {Booking.Status.COMPLETED, Booking.Status.CANCELLED}
+
+    def validate(self, attrs):
+        booking = self.context["booking"]
+        target = attrs["status"]
+        current = booking.status
+
+        if current in self.TERMINAL_STATUSES:
+            raise serializers.ValidationError(
+                f"This booking is already {booking.get_status_display().lower()} "
+                "and can no longer be changed."
+            )
+
+        if target == current:
+            raise serializers.ValidationError(
+                f"This booking is already {booking.get_status_display().lower()}."
+            )
+
+        # Only a staff member who owns the job may move it. An unassigned job
+        # has to be claimed first, so `assigned_staff_id` is the gate.
+        if booking.assigned_staff_id != self.context["actor"].id:
+            raise serializers.ValidationError(
+                "This booking is assigned to another technician. Claim it first."
+            )
+
+        return attrs
+
+
 class BookingCreateSerializer(serializers.Serializer):
     """
     Validates customer-submitted booking form.

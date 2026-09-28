@@ -14,6 +14,9 @@ from .views import (
     BookingListCreateView,
     BookingDetailView,
     BookingCancelView,
+    StaffBookingListView,
+    StaffBookingAssignView,
+    StaffBookingStatusView,
     EVStationListView,
     EVStationDetailView,
     EVBookingListCreateView,
@@ -37,6 +40,11 @@ urlpatterns = [
     path("bookings/", BookingListCreateView.as_view(), name="api-bookings"),
     path("bookings/<int:pk>/", BookingDetailView.as_view(), name="api-booking-detail"),
     path("bookings/<int:pk>/cancel/", BookingCancelView.as_view(), name="api-booking-cancel"),
+
+    # Staff dispatch (service staff only)
+    path("staff/bookings/", StaffBookingListView.as_view(), name="api-staff-bookings"),
+    path("staff/bookings/<int:pk>/assign/", StaffBookingAssignView.as_view(), name="api-staff-booking-assign"),
+    path("staff/bookings/<int:pk>/status/", StaffBookingStatusView.as_view(), name="api-staff-booking-status"),
 
     # EV charging — stations are public, reservations require a session
     path("ev/stations/", EVStationListView.as_view(), name="api-ev-stations"),

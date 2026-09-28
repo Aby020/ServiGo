@@ -233,6 +233,35 @@ export interface CreateBookingPayload {
   notes?: string;
 }
 
+/**
+ * A booking as the dispatch desk sees it.
+ *
+ * Extends the customer-facing `Booking` with the contact snapshot and the
+ * current assignee. The server only emits these on the staff-gated routes —
+ * `Booking` itself deliberately does not carry them.
+ */
+export interface StaffBooking extends Booking {
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  assigned_staff_id: number | null;
+  assigned_staff_name: string | null;
+}
+
+export interface StaffBookingDetail extends StaffBooking {
+  status_history: BookingStatusHistory[];
+}
+
+export type StaffQueueFilter = "unassigned" | "mine" | "all";
+
+export interface StaffBookingsParams {
+  /** One or more statuses; the server accepts a comma-separated list. */
+  status?: BookingStatus[];
+  assigned?: StaffQueueFilter;
+  page?: number;
+  page_size?: number;
+}
+
 // ── Booking endpoints ─────────────────────────────────────────────────────────
 
 async function authedFetch(
@@ -296,6 +325,72 @@ export async function cancelBooking(
     accessToken,
   );
   return handleResponse<BookingDetail>(res);
+}
+
+// ── Staff dispatch endpoints ──────────────────────────────────────────────────
+
+/**
+ * Fetch the dispatch queue.
+ *
+ * Query parameters are built explicitly and the empty ones are dropped rather
+ * than sent as `status=&assigned=`: the server treats a present-but-blank
+ * `assigned` as an unknown value and answers 400, so serialising undefined
+ * straight into the URL would turn a missing filter into a failed request.
+ */
+export async function getStaffBookings(
+  accessToken: string,
+  params: StaffBookingsParams = {},
+): Promise<PaginatedResponse<StaffBooking>> {
+  const query = new URLSearchParams();
+  if (params.status?.length) query.set("status", params.status.join(","));
+  if (params.assigned) query.set("assigned", params.assigned);
+  if (params.page) query.set("page", String(params.page));
+  if (params.page_size) query.set("page_size", String(params.page_size));
+
+  const qs = query.toString();
+  const res = await authedFetch(
+    `${API_URL}/staff/bookings/${qs ? `?${qs}` : ""}`,
+    { method: "GET" },
+    accessToken,
+  );
+  return handleResponse<PaginatedResponse<StaffBooking>>(res);
+}
+
+/**
+ * Claim a job for the signed-in technician.
+ *
+ * The endpoint takes no body — the server always assigns to the caller — so
+ * the empty object here is a formality, not a payload.
+ */
+export async function assignStaffBooking(
+  id: number,
+  accessToken: string,
+): Promise<StaffBookingDetail> {
+  const res = await authedFetch(
+    `${API_URL}/staff/bookings/${id}/assign/`,
+    { method: "POST", body: JSON.stringify({}) },
+    accessToken,
+  );
+  return handleResponse<StaffBookingDetail>(res);
+}
+
+export interface UpdateStaffBookingStatusPayload {
+  status: BookingStatus;
+  /** Shown verbatim on the customer's booking timeline. */
+  notes?: string;
+}
+
+export async function updateStaffBookingStatus(
+  id: number,
+  payload: UpdateStaffBookingStatusPayload,
+  accessToken: string,
+): Promise<StaffBookingDetail> {
+  const res = await authedFetch(
+    `${API_URL}/staff/bookings/${id}/status/`,
+    { method: "POST", body: JSON.stringify(payload) },
+    accessToken,
+  );
+  return handleResponse<StaffBookingDetail>(res);
 }
 
 // ── EV charging ───────────────────────────────────────────────────────────────
