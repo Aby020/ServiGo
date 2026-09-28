@@ -297,3 +297,184 @@ export async function cancelBooking(
   );
   return handleResponse<BookingDetail>(res);
 }
+
+// ── EV charging ───────────────────────────────────────────────────────────────
+
+/**
+ * The three buckets a pin is painted by, mirroring
+ * `EVChargingStation.get_availability_tone()` on the server. The map derives its
+ * marker colour from this rather than from `status` directly, so "limited"
+ * (a station down to its last third of bays) is visually distinct from
+ * "unavailable" (closed, or no bays at all).
+ */
+export type EvAvailabilityTone = "available" | "limited" | "unavailable";
+
+export type EvBookingStatus =
+  | "pending"
+  | "confirmed"
+  | "active"
+  | "completed"
+  | "cancelled";
+
+export interface EvStation {
+  id: number;
+  name: string;
+  slug: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  /** Null until the station has been geocoded; the map skips those. */
+  latitude: number | null;
+  longitude: number | null;
+  charger_type: string;
+  charger_type_display: string;
+  charging_speed_kw: number;
+  is_fast_charging: boolean;
+  /** JSON number, not a string — the EV serializers disable DRF's string coercion. */
+  price_per_kwh: number;
+  price_display: string;
+  status: string;
+  status_display: string;
+  availability_tone: EvAvailabilityTone;
+  total_ports: number;
+  available_ports: number;
+  is_24_hours: boolean;
+  is_open_now: boolean;
+  image_url: string | null;
+  /** Pre-formatted for the card, e.g. "Open 24×7" or "08:00 – 22:00". */
+  hours_display: string;
+}
+
+export interface EvSlot {
+  /** `"HH:MM:SS"` station-local wall clock. Send back verbatim as `slot_time`. */
+  start: string;
+  end: string;
+  is_available: boolean;
+  available_ports: number;
+}
+
+export interface EvSlotGrid {
+  duration_minutes: number;
+  horizon_hours: number;
+  timezone: string;
+  slots: EvSlot[];
+}
+
+export interface EvStationDetail extends EvStation {
+  description: string;
+  opens_at: string;
+  closes_at: string;
+  slot_grid: EvSlotGrid;
+}
+
+export interface EvBooking {
+  id: number;
+  station: EvStation;
+  station_id: number;
+  vehicle_number: string;
+  start_at: string;
+  end_at: string;
+  estimated_kwh: number;
+  estimated_cost: number;
+  price_per_kwh: number;
+  status: EvBookingStatus;
+  status_display: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface EvStationsParams {
+  search?: string;
+  /** Comma-separated charger types, e.g. `"ccs2,chademo"`. */
+  connector_type?: string;
+  is_fast_charging?: boolean;
+  available_only?: boolean;
+  city?: string;
+  max_price?: number;
+}
+
+/** Public — no token required, so the discovery map renders before login. */
+export async function fetchEvStations(
+  params: EvStationsParams = {},
+): Promise<EvStation[]> {
+  const qs = new URLSearchParams();
+  if (params.search) qs.set("search", params.search);
+  if (params.connector_type) qs.set("connector_type", params.connector_type);
+  if (params.is_fast_charging !== undefined) {
+    qs.set("is_fast_charging", String(params.is_fast_charging));
+  }
+  if (params.available_only !== undefined) {
+    qs.set("available_only", String(params.available_only));
+  }
+  if (params.city) qs.set("city", params.city);
+  if (params.max_price !== undefined) {
+    qs.set("max_price", String(params.max_price));
+  }
+  const suffix = qs.toString();
+  const res = await fetch(`${API_URL}/ev/stations/${suffix ? `?${suffix}` : ""}`);
+  return handleResponse<EvStation[]>(res);
+}
+
+export async function fetchEvStationDetail(id: number): Promise<EvStationDetail> {
+  const res = await fetch(`${API_URL}/ev/stations/${id}/`);
+  return handleResponse<EvStationDetail>(res);
+}
+
+export interface CreateEvBookingPayload {
+  station_id: number;
+  /**
+   * An ISO-8601 instant that lands exactly on one of the station's published
+   * `slot_grid.slots[].start` values. The server rejects anything off-grid
+   * rather than snapping it, so this must be built from the grid the UI
+   * actually rendered.
+   */
+  slot_time: string;
+  vehicle_number: string;
+  estimated_kwh?: number;
+  notes?: string;
+}
+
+export async function createEvBooking(
+  payload: CreateEvBookingPayload,
+  accessToken: string,
+): Promise<EvBooking> {
+  const res = await authedFetch(
+    `${API_URL}/ev/bookings/`,
+    { method: "POST", body: JSON.stringify(payload) },
+    accessToken,
+  );
+  return handleResponse<EvBooking>(res);
+}
+
+export async function listEvBookings(
+  accessToken: string,
+  status?: EvBookingStatus,
+  page = 1,
+): Promise<PaginatedResponse<EvBooking>> {
+  const qs = new URLSearchParams({ page: String(page) });
+  if (status) qs.set("status", status);
+  const res = await authedFetch(
+    `${API_URL}/ev/bookings/?${qs.toString()}`,
+    { method: "GET" },
+    accessToken,
+  );
+  return handleResponse<PaginatedResponse<EvBooking>>(res);
+}
+
+export async function cancelEvBooking(
+  id: number,
+  accessToken: string,
+): Promise<EvBooking> {
+  const res = await authedFetch(
+    `${API_URL}/ev/bookings/${id}/cancel/`,
+    { method: "POST", body: JSON.stringify({}) },
+    accessToken,
+  );
+  return handleResponse<EvBooking>(res);
+}
+
+/** Every distinct city in the current result set, for the filter dropdown. */
+export function uniqueCities(stations: EvStation[]): string[] {
+  return Array.from(new Set(stations.map((s) => s.city).filter(Boolean))).sort();
+}

@@ -28,7 +28,7 @@ export default function FeaturedServices() {
 
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-      {list.slice(0, 6).map((s) => (
+      {list.slice(0, 6).map((s, i) => (
         <Link
           key={s.id}
           href={`/services/${s.id}`}
@@ -40,6 +40,10 @@ export default function FeaturedServices() {
             alt={s.name}
             className="h-20 w-full"
             imgClassName="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+            // This strip is embedded at the top of a dashboard, so its first
+            // row is the first thing painted.
+            priority={i < 3}
+            sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 16vw"
           />
           <div className="flex flex-1 flex-col p-3.5 text-center">
             <span className="text-sm font-semibold text-ink">{s.name}</span>

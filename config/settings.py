@@ -248,4 +248,16 @@ SPECTACULAR_SETTINGS = {
     # Turning it off keeps generated clients from demanding server-owned
     # fields (e.g. RegisterSerializer's `role` / `is_staff`).
     "COMPONENT_NO_READ_ONLY_REQUIRED": True,
+    # Both `bookings.Booking.status` and `ev_charging.EVChargingBooking.status`
+    # are a field called "status" over a different TextChoices set, which
+    # spectacular can only disambiguate with a hash suffix ("Status528Enum").
+    # Naming them here keeps the generated schema stable across unrelated
+    # changes and — more importantly — stops a service-booking status from
+    # ever being sent where an EV reservation status is expected.
+    "ENUM_NAME_OVERRIDES": {
+        "BookingStatusEnum": "bookings.models.Booking.Status",
+        "EVBookingStatusEnum": "ev_charging.models.EVChargingBooking.Status",
+        "EVStationStatusEnum": "ev_charging.models.EVChargingStation.Status",
+        "EVChargerTypeEnum": "ev_charging.models.EVChargingStation.ChargerType",
+    },
 }

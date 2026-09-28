@@ -9,7 +9,7 @@
  */
 
 import type { BadgeTone } from "@/components/ui/Badge";
-import type { BookingStatus } from "./api";
+import type { BookingStatus, EvBookingStatus } from "./api";
 
 export const BOOKING_STATUSES: BookingStatus[] = [
   "pending",
@@ -91,4 +91,57 @@ export function formatTimestamp(iso: string): string {
 export function formatPrice(value: string): string {
   const n = Number.parseFloat(value);
   return Number.isFinite(n) ? `₹${n.toLocaleString("en-IN")}` : "₹—";
+}
+
+/* ── EV charging reservations ────────────────────────────────────────────────
+   A second, smaller status machine. It is kept beside the service-booking one
+   rather than merged into it: the two enums have different members, and a
+   shared map keyed by status would silently badge an "active" charge as
+   "unknown". Mirrors `ev_charging.models.EVChargingBooking.Status`. */
+
+export const EV_STATUS_TONE: Record<EvBookingStatus, BadgeTone> = {
+  pending: "warning",
+  confirmed: "info",
+  active: "primary",
+  completed: "success",
+  cancelled: "danger",
+};
+
+/** Terminal statuses — `EVBookingCancelView` refuses to cancel these. */
+export const EV_CANCEL_BLOCKED: EvBookingStatus[] = ["completed", "cancelled"];
+
+export function canCancelEvBooking(status: EvBookingStatus): boolean {
+  return !EV_CANCEL_BLOCKED.includes(status);
+}
+
+/** An EV session is imminent if it starts within the next two hours. */
+export function isEvStartingSoon(startAt: string, withinHours = 2): boolean {
+  const start = new Date(startAt).getTime();
+  if (Number.isNaN(start)) return false;
+  const now = Date.now();
+  return start > now && start - now <= withinHours * 3_600_000;
+}
+
+/** "14:30, 28 Sep" from an ISO instant. */
+export function formatEvWindow(startAt: string, endAt: string): string {
+  const start = new Date(startAt);
+  if (Number.isNaN(start.getTime())) return "—";
+  const time = start.toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const day = start.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+  });
+  const end = new Date(endAt);
+  const endTime = Number.isNaN(end.getTime())
+    ? null
+    : end.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  return endTime ? `${time} – ${endTime}, ${day}` : `${time}, ${day}`;
+}
+
+/** Money as the EV API returns it — a JSON number, not a string. */
+export function formatEvMoney(value: number): string {
+  return Number.isFinite(value) ? `₹${value.toLocaleString("en-IN")}` : "₹—";
 }

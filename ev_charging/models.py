@@ -117,6 +117,51 @@ class EVChargingStation(models.Model):
         # Overnight hours (e.g., 22:00 - 06:00)
         return now >= self.opens_at or now <= self.closes_at
 
+    def get_availability_tone(self):
+        """
+        Collapse the four operating statuses and the free/total port ratio into
+        the three buckets the discovery map paints markers by.
+
+        Returns one of ``"available"``, ``"limited"`` or ``"unavailable"``.
+        Kept on the model rather than in the API layer so the template views,
+        the map and the serializer all agree on what a pin's colour means.
+        """
+        if self.status in (self.Status.MAINTENANCE, self.Status.OFFLINE):
+            return "unavailable"
+        if self.status == self.Status.IN_USE:
+            return "limited"
+        if self.available_ports <= 0:
+            return "unavailable"
+        # A third of the bays or fewer is "limited" — it can still be booked,
+        # but it is the last thing a driver should be routed to blindly.
+        if self.total_ports and self.available_ports * 3 <= self.total_ports:
+            return "limited"
+        return "available"
+
+    def has_coordinates(self):
+        """True when the station can be pinned on the map."""
+        return self.latitude is not None and self.longitude is not None
+
+    @property
+    def is_fast_charging(self):
+        """
+        DC fast charging, using the 50 kW threshold the industry uses to
+        separate a "fast charge" stop from an overnight AC top-up.
+        """
+        return self.charging_speed_kw >= 50
+
+    @property
+    def price_display(self):
+        """Rate as shown in the UI, e.g. ``₹12.00/kWh``."""
+        return self.get_formatted_price()
+
+    @property
+    def hours_display(self):
+        """Operating hours as shown in the UI, e.g. ``Open 24×7``."""
+        if self.is_24_hours:
+            return "Open 24×7"
+        return f"{self.opens_at.strftime('%H:%M')} – {self.closes_at.strftime('%H:%M')}"
+
 
 class EVChargingBooking(models.Model):
     """
@@ -150,6 +195,16 @@ class EVChargingBooking(models.Model):
     )
 
     # Booking details
+    #
+    # `vehicle_number` is the registration the customer expects to be greeted
+    # with on arrival. It is stored on the booking rather than on the account
+    # because a customer with two cars reserves a different bay for each.
+    vehicle_number = models.CharField(
+        _("vehicle number"),
+        max_length=32,
+        blank=True,
+        help_text="Registration plate of the vehicle being charged",
+    )
     booking_date = models.DateField(_("booking date"))
     start_time = models.TimeField(_("start time"))
     end_time = models.TimeField(_("end time"))

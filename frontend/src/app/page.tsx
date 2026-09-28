@@ -163,6 +163,8 @@ function HeroPreview() {
                   alt="Smart TV repair in progress"
                   className="h-10 w-10 shrink-0 rounded-md"
                   imgClassName="object-cover"
+                  priority
+                  sizes="40px"
                 />
                 <div>
                   <p className="font-display text-sm font-bold text-ink">{LIVE_JOB.title}</p>
@@ -299,6 +301,12 @@ function CategoryBento() {
                   alt={`${cat.name} service`}
                   className="mb-3 h-32 w-full rounded-md"
                   imgClassName="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+                  // The bento sits directly under the hero on a 1080p laptop,
+                  // so these tiles are above the fold even though the section
+                  // header is not. Loading them eagerly is what stops the
+                  // grid flashing six empty frames on first paint.
+                  priority
+                  sizes="(max-width: 768px) 45vw, (max-width: 1024px) 30vw, 16vw"
                 />
                 <h3 className="mb-0.5 font-display text-sm font-bold text-ink">{cat.name}</h3>
                 <p className="mb-2 text-xs text-muted">{cat.tag}</p>
@@ -377,6 +385,7 @@ function FeaturedServices() {
                   alt={s.name}
                   className="h-48 w-full"
                   imgClassName="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+                  sizes="(max-width: 640px) 92vw, 30vw"
                 />
                 <div className="flex flex-1 flex-col p-5">
                   <div className="mb-2 flex items-center justify-between gap-3">

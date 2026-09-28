@@ -28,7 +28,14 @@ function formatPrice(price: string): string {
 
 /* ── Service card ──────────────────────────────────────────────────────────── */
 
-function ServiceCard({ service }: { service: Service }) {
+function ServiceCard({
+  service,
+  priority = false,
+}: {
+  service: Service;
+  /** True for the first row of the grid, which is above the fold. */
+  priority?: boolean;
+}) {
   const categorySlug = service.category?.slug;
   // Hydration-safe token-presence read: identical on the server and on the
   // first client render, so the Book link's href never changes mid-paint.
@@ -62,6 +69,8 @@ function ServiceCard({ service }: { service: Service }) {
             alt={service.name}
             className="h-40 w-full"
             imgClassName="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+            priority={priority}
+            sizes="(max-width: 640px) 92vw, (max-width: 1024px) 45vw, 30vw"
           />
 
           <div className="flex flex-1 flex-col p-5">
@@ -315,8 +324,8 @@ export default function ServicesPage() {
                   key={`${debouncedSearch}-${selectedCategory}-${order}-${page}`}
                   className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3"
                 >
-                  {services.map((s) => (
-                    <ServiceCard key={s.id} service={s} />
+                  {services.map((s, i) => (
+                    <ServiceCard key={s.id} service={s} priority={i < 3} />
                   ))}
                 </StaggerOnView>
 

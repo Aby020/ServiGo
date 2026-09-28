@@ -14,6 +14,11 @@ from .views import (
     BookingListCreateView,
     BookingDetailView,
     BookingCancelView,
+    EVStationListView,
+    EVStationDetailView,
+    EVBookingListCreateView,
+    EVBookingDetailView,
+    EVBookingCancelView,
 )
 
 urlpatterns = [
@@ -32,4 +37,11 @@ urlpatterns = [
     path("bookings/", BookingListCreateView.as_view(), name="api-bookings"),
     path("bookings/<int:pk>/", BookingDetailView.as_view(), name="api-booking-detail"),
     path("bookings/<int:pk>/cancel/", BookingCancelView.as_view(), name="api-booking-cancel"),
+
+    # EV charging — stations are public, reservations require a session
+    path("ev/stations/", EVStationListView.as_view(), name="api-ev-stations"),
+    path("ev/stations/<int:pk>/", EVStationDetailView.as_view(), name="api-ev-station-detail"),
+    path("ev/bookings/", EVBookingListCreateView.as_view(), name="api-ev-bookings"),
+    path("ev/bookings/<int:pk>/", EVBookingDetailView.as_view(), name="api-ev-booking-detail"),
+    path("ev/bookings/<int:pk>/cancel/", EVBookingCancelView.as_view(), name="api-ev-booking-cancel"),
 ]

@@ -1,13 +1,17 @@
 """
 Views for the ServiGo REST API.
 """
+import decimal
+
 from rest_framework import status, filters
+from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
-from django.db.models import Q
+from django.db.models import F, Q
+from django.db.models.functions import Least
 from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
@@ -27,11 +31,17 @@ from .serializers import (
     BookingSerializer,
     BookingDetailSerializer,
     BookingCreateSerializer,
+    EVBookingCreateSerializer,
+    EVBookingSerializer,
+    EVStationDetailSerializer,
+    EVStationSerializer,
+    SLOT_DURATION_MINUTES,
 )
 from .permissions import IsCustomer, IsOwnerOrStaff
 from accounts.models import User
 from services.models import Service, ServiceCategory
 from bookings.models import Booking, BookingStatusHistory
+from ev_charging.models import EVChargingBooking, EVChargingStation
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
@@ -418,3 +428,431 @@ class BookingCancelView(APIView):
             Booking.objects.prefetch_related("status_history__changed_by").get(pk=pk)
         )
         return Response(serializer.data)
+
+
+# ── EV charging ───────────────────────────────────────────────────────────────
+
+#: Charger considered "DC fast". Mirrors `EVChargingStation.is_fast_charging`,
+#: which is also what the `is_fast_charging` filter below compares against —
+#: one constant, so the filter and the response field can never disagree.
+FAST_CHARGING_MIN_KW = 50
+
+
+def truthy(value: str | None) -> bool | None:
+    """
+    Parse a query-string boolean.
+
+    Returns ``None`` when the parameter is absent, so a caller can tell
+    "not asked for" from "asked for false" — the difference between
+    `?available_only=false` and an omitted `available_only` is whether the
+    filter applies at all.
+    """
+    if value is None:
+        return None
+    return value.strip().lower() in {"true", "1", "yes", "on"}
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="List EV charging stations",
+        description=(
+            "Public catalogue of active charging stations, ordered to put the "
+            "ones a driver can actually use right now first: available bays "
+            "descending, then rated speed, then name.\n\n"
+            "Stations with no coordinates are still returned — the list is a "
+            "useful answer on its own — but the map ignores them, so a client "
+            "should check `latitude` before placing a pin."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=str,
+                description="Free-text match on name, address, city or state.",
+            ),
+            OpenApiParameter(
+                name="connector_type",
+                type=str,
+                enum=[choice for choice, _ in EVChargingStation.ChargerType.choices],
+                description="Restrict to a single connector standard.",
+            ),
+            OpenApiParameter(
+                name="is_fast_charging",
+                type=bool,
+                description=(
+                    f"`true` keeps only chargers rated "
+                    f"{FAST_CHARGING_MIN_KW} kW and above. Omit for all speeds."
+                ),
+            ),
+            OpenApiParameter(
+                name="available_only",
+                type=bool,
+                description=(
+                    "`true` keeps only stations with at least one free bay. "
+                    "Omit to include full and closed stations."
+                ),
+            ),
+            OpenApiParameter(
+                name="city",
+                type=str,
+                description="Exact city match, case-insensitive.",
+            ),
+            OpenApiParameter(
+                name="max_price",
+                type=decimal.Decimal,
+                description="Upper bound on `price_per_kwh`, inclusive.",
+            ),
+        ],
+        responses={200: EVStationSerializer(many=True)},
+        tags=["EV Charging"],
+    ),
+)
+class EVStationListView(ListAPIView):
+    """GET /api/ev/stations/ — public, filterable station catalogue."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    serializer_class = EVStationSerializer
+
+    def get_queryset(self):
+        qs = EVChargingStation.objects.filter(is_active=True)
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(address__icontains=search)
+                | Q(city__icontains=search)
+                | Q(state__icontains=search)
+            )
+
+        connector_type = self.request.query_params.get("connector_type")
+        if connector_type:
+            # A comma-separated list is allowed so the UI's connector chips can
+            # pass its whole selection in one call. An unknown value is an
+            # empty intersection rather than a 400 — the list is a filter, and
+            # "show me nothing" is a fair answer to "show me DC-only"
+            # connections this network does not have.
+            types = [t.strip() for t in connector_type.split(",") if t.strip()]
+            if types:
+                qs = qs.filter(charger_type__in=types)
+
+        if truthy(self.request.query_params.get("is_fast_charging")):
+            qs = qs.filter(charging_speed_kw__gte=FAST_CHARGING_MIN_KW)
+
+        if truthy(self.request.query_params.get("available_only")):
+            qs = qs.filter(available_ports__gt=0).exclude(
+                status__in=(
+                    EVChargingStation.Status.MAINTENANCE,
+                    EVChargingStation.Status.OFFLINE,
+                )
+            )
+
+        city = self.request.query_params.get("city", "").strip()
+        if city:
+            qs = qs.filter(city__iexact=city)
+
+        max_price = self.request.query_params.get("max_price")
+        if max_price:
+            try:
+                qs = qs.filter(price_per_kwh__lte=decimal.Decimal(max_price))
+            except decimal.InvalidOperation:
+                raise ValidationError({"max_price": "Must be a decimal number."})
+
+        # `status` is only the coarse state; `available_ports` is the live one.
+        # Ordering by the bay count first is what makes "near me, right now"
+        # the default view rather than "here are four stations, three full".
+        return qs.order_by("-available_ports", "-charging_speed_kw", "name")
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Retrieve an EV charging station",
+        description=(
+            "Full station profile plus the bay grid for the next "
+            f"{SLOT_DURATION_MINUTES * 2} hours: every window the station will "
+            "accept a reservation for, each carrying how many bays are still "
+            "free at that time. A client must pick a `start` from this array "
+            "and pass it back verbatim as `slot_time` when booking."
+        ),
+        responses={
+            200: EVStationDetailSerializer,
+            404: OpenApiResponse(description="Station not found or inactive"),
+        },
+        tags=["EV Charging"],
+    ),
+)
+class EVStationDetailView(RetrieveAPIView):
+    """GET /api/ev/stations/<id>/ — public station profile + bay grid."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    serializer_class = EVStationDetailSerializer
+    lookup_field = "pk"
+    lookup_url_kwarg = "pk"
+
+    def get_queryset(self):
+        return EVChargingStation.objects.filter(is_active=True)
+
+
+class EVBookingPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 50
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="List EV charging bookings",
+        description=(
+            "Reservations for the caller. A customer sees only their own; "
+            "staff and admin see every reservation across the network, which "
+            "is what a support or operations view needs.\n\n"
+            "Results are newest first and include the full station, so a "
+            "client can render a reservation without a second round-trip."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=str,
+                enum=[status for status, _ in EVChargingBooking.Status.choices],
+                description="Restrict to a single booking status.",
+            ),
+            OpenApiParameter(name="page", type=int, description="Page number (1-based)."),
+            OpenApiParameter(
+                name="page_size",
+                type=int,
+                description="Items per page. Default 10, max 50.",
+            ),
+        ],
+        responses={200: EVBookingSerializer(many=True)},
+        tags=["EV Charging"],
+    ),
+    post=extend_schema(
+        summary="Reserve a charging bay",
+        description=(
+            "Books one bay for one window at a station.\n\n"
+            "The payload is deliberately minimal — `station_id`, `slot_time` "
+            "and `vehicle_number` — because everything else is the server's "
+            "to derive:\n\n"
+            "  * `slot_time` must match a `start` published by the station's "
+            "`slots` array and must be in the future. It cannot be snapped to "
+            "the nearest window, so a caller never silently gets a bay half "
+            "an hour from the one they asked for.\n"
+            "  * `booking_date` comes from `slot_time`, and `end_time` is the "
+            "next window in the grid — an overlapping or out-of-hours "
+            "reservation is therefore not expressible.\n"
+            "  * `estimated_cost` is `estimated_kwh × station.price_per_kwh`, "
+            "always taken from the station row and never from the request.\n\n"
+            "Booking holds a bay by decrementing the station's free-port "
+            "counter. If a concurrent request claims the last bay first, this "
+            "call fails with a 400 and creates nothing."
+        ),
+        request=EVBookingCreateSerializer,
+        responses={
+            201: EVBookingSerializer,
+            400: OpenApiResponse(
+                description="Validation error — unknown station, expired or "
+                "unpublished slot, or no bay left at that time."
+            ),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(
+                description="Only customers may reserve a bay"
+            ),
+        },
+        tags=["EV Charging"],
+    ),
+)
+class EVBookingListCreateView(APIView):
+    """
+    GET  /api/ev/bookings/ — reservations visible to the caller.
+    POST /api/ev/bookings/ — reserve a bay (customer only).
+    """
+
+    permission_classes = [IsAuthenticated]
+    pagination_class = EVBookingPagination
+
+    def get(self, request):
+        user = request.user
+        is_staff_or_admin = (
+            getattr(user, "is_staff_user", False)
+            or getattr(user, "is_admin_user", False)
+        )
+        qs = EVChargingBooking.objects.select_related("station")
+        if not is_staff_or_admin:
+            qs = qs.filter(customer=user)
+
+        status = request.query_params.get("status")
+        if status:
+            qs = qs.filter(status=status)
+
+        qs = qs.order_by("-created_at")
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(qs, request)
+        serializer = EVBookingSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    @extend_schema(
+        summary="Reserve a charging bay",
+        description=(
+            "Customer-only. See the endpoint-level description for the full "
+            "contract: `slot_time` must match a published bay window, and the "
+            "quoted cost is always derived from the station's own rate."
+        ),
+        request=EVBookingCreateSerializer,
+        responses={
+            201: EVBookingSerializer,
+            400: OpenApiResponse(description="Validation error"),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Only customers may reserve a bay"),
+        },
+        tags=["EV Charging"],
+    )
+    def post(self, request):
+        if request.user.role != "customer":
+            return Response(
+                {"detail": "Only customers can reserve a charging bay."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = EVBookingCreateSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        booking = serializer.save()
+        return Response(
+            EVBookingSerializer(booking).data, status=status.HTTP_201_CREATED
+        )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Retrieve a charging reservation",
+        description=(
+            "A single reservation including its station. A customer may only "
+            "read their own; staff and admin may read any."
+        ),
+        responses={
+            200: EVBookingSerializer,
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Not the owner of this booking"),
+            404: OpenApiResponse(description="Booking not found"),
+        },
+        tags=["EV Charging"],
+    ),
+)
+class EVBookingDetailView(APIView):
+    """GET /api/ev/bookings/<id>/ — owner-only reservation detail."""
+
+    permission_classes = [IsAuthenticated, IsOwnerOrStaff]
+
+    @extend_schema(
+        summary="Retrieve a charging reservation",
+        description=(
+            "Returns one reservation. A customer may only read their own "
+            "booking; staff and admin may read any."
+        ),
+        responses={
+            200: EVBookingSerializer,
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Not the owner of this booking"),
+            404: OpenApiResponse(description="Booking not found"),
+        },
+        tags=["EV Charging"],
+    )
+    def get(self, request, pk):
+        try:
+            booking = EVChargingBooking.objects.select_related("station").get(pk=pk)
+        except EVChargingBooking.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        self.check_object_permissions(request, booking)
+        return Response(EVBookingSerializer(booking).data)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Cancel a charging reservation",
+        description=(
+            "Cancels a reservation held by the authenticated customer and "
+            "returns the bay to the station's free-port count, so the window "
+            "reopens for someone else immediately.\n\n"
+            "Refused once the charging session has actually started — at that "
+            "point the car is on the bay and releasing the reservation would "
+            "let a second driver book hardware that is in use. `completed` and "
+            "`cancelled` are terminal and equally refused."
+        ),
+        request=None,
+        responses={
+            200: EVBookingSerializer,
+            400: OpenApiResponse(description="Reservation cannot be cancelled"),
+            401: OpenApiResponse(description="Not authenticated"),
+            404: OpenApiResponse(
+                description="Booking not found or not owned by caller"
+            ),
+        },
+        tags=["EV Charging"],
+    ),
+)
+class EVBookingCancelView(APIView):
+    """
+    POST /api/ev/bookings/<id>/cancel/ — release a held bay.
+
+    Only the reservation's own customer may cancel it, and only while it is
+    still cancellable. Cancelling gives the bay back: the station's
+    ``available_ports`` is incremented so the same window becomes bookable
+    again rather than staying dark until someone reloads the page.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Cancel a charging reservation",
+        description=(
+            "Cancels a reservation held by the authenticated customer and "
+            "returns the bay to the station's free-port count. Refused once "
+            "the session is `active`, or when the reservation is already "
+            "`completed` or `cancelled`."
+        ),
+        request=None,
+        responses={
+            200: EVBookingSerializer,
+            400: OpenApiResponse(description="Reservation cannot be cancelled"),
+            401: OpenApiResponse(description="Not authenticated"),
+            404: OpenApiResponse(
+                description="Booking not found or not owned by caller"
+            ),
+        },
+        tags=["EV Charging"],
+    )
+    def post(self, request, pk):
+        try:
+            booking = EVChargingBooking.objects.select_related("station").get(
+                pk=pk, customer=request.user
+            )
+        except EVChargingBooking.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        cancellable = (
+            EVChargingBooking.Status.PENDING,
+            EVChargingBooking.Status.CONFIRMED,
+        )
+        if booking.status not in cancellable:
+            return Response(
+                {"detail": "This reservation cannot be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking.status = EVChargingBooking.Status.CANCELLED
+        booking.save(update_fields=["status", "updated_at"])
+
+        # Return the bay. F() keeps the increment atomic; clamping at
+        # `total_ports` guards against a double-cancel inflating the count
+        # past the station's real capacity.
+        EVChargingStation.objects.filter(pk=booking.station_id).update(
+            available_ports=Least(
+                F("available_ports") + 1, F("total_ports")
+            )
+        )
+
+        booking.refresh_from_db()
+        return Response(EVBookingSerializer(booking).data)

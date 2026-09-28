@@ -113,6 +113,7 @@ export default function ServiceDetailPage() {
           fallbackSrc={getServiceFallback(categorySlug)}
           alt={service.name}
           priority
+          sizes="(max-width: 1024px) 94vw, 68vw"
           aspectRatio="21 / 9"
           className="mb-8 w-full rounded-lg border border-line"
           imgClassName="object-cover"

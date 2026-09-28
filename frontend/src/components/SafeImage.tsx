@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FALLBACK_IMAGE } from "@/lib/images";
@@ -17,7 +17,9 @@ interface SafeImageProps {
   /**
    * Give up on the current source after this many ms and advance to the next
    * one. Guards against a remote URL that hangs forever without ever firing an
-   * `error` event.
+   * `error` event. Defaults low: the fallback is a local file on the same
+   * origin, so a slower "correct" answer is worth less than a fast wrong one
+   * that still paints something.
    */
   timeoutMs?: number;
   /** Show a subtle wash + monogram while the image decodes. */
@@ -51,6 +53,13 @@ interface SafeImageProps {
  * `key` is the (source, fallback) pair. When the caller asks for a different
  * image the state is reset *during render* rather than in an effect, so the
  * old photo is never painted for a frame under the new one.
+ *
+ * A `priority` image additionally emits a `<link rel="preload">` for the
+ * source it is about to paint. `fetchPriority="high"` on the `<img>` alone
+ * does not start the download early enough — the element is not in the DOM
+ * yet when React renders it, and the preload scanner has already moved on.
+ * The link is what actually moves the hero photograph to the front of the
+ * connection queue.
  */
 export function SafeImage({
   src,
@@ -58,7 +67,7 @@ export function SafeImage({
   alt,
   className,
   imgClassName,
-  timeoutMs = 8000,
+  timeoutMs = 2500,
   withPlaceholder = true,
   priority = false,
   sizes,
@@ -99,6 +108,27 @@ export function SafeImage({
     const t = setTimeout(advance, timeoutMs);
     return () => clearTimeout(t);
   }, [loaded, level, timeoutMs, advance]);
+
+  // Preload the priority source before the browser's own discovery pass. The
+  // link is removed as soon as the image loads, or when the component gives
+  // up on this source, so a failed hero does not leave a dangling hint that
+  // the browser keeps retrying.
+  const preloadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!priority || !primary) return;
+    if (preloadedRef.current === primary) return;
+    preloadedRef.current = primary;
+    const link = document.createElement("link");
+    link.rel = "preload";
+    link.as = "image";
+    link.href = primary;
+    if (sizes) link.sizes = sizes;
+    document.head.appendChild(link);
+    return () => {
+      link.remove();
+      preloadedRef.current = null;
+    };
+  }, [priority, primary, sizes]);
 
   const handleError = useCallback(() => advance(), [advance]);
 
@@ -151,7 +181,11 @@ export function SafeImage({
           src={currentSrc}
           alt={alt}
           loading={priority ? "eager" : "lazy"}
-          decoding="async"
+          // `async` hands the decode to a background thread and lets the main
+          // thread keep working — right for a card that scrolls into view
+          // later. For the LCP image the opposite is true: we want it decoded
+          // before the first paint, so decoding is synchronous.
+          decoding={priority ? "sync" : "async"}
           fetchPriority={priority ? "high" : undefined}
           sizes={sizes}
           onError={handleError}

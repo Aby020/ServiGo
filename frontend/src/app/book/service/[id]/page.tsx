@@ -301,6 +301,7 @@ export default function BookServicePage() {
                 aspectRatio="16 / 10"
                 className="w-full border-b border-line"
                 imgClassName="object-cover"
+                sizes="(max-width: 1024px) 92vw, 20rem"
               />
               <div className="p-6">
                 <Badge tone="primary" size="md">
