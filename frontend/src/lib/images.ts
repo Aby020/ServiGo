@@ -63,6 +63,24 @@ function normalize(value: string | null | undefined): string {
 }
 
 /**
+ * Backend media URLs that point at a developer's own machine.
+ *
+ * Records seeded from the Django side carry `http://127.0.0.1:8004/media/...`.
+ * That address is only meaningful to the machine that wrote it: the browser
+ * fetches it cross-origin, Django serves it without a permissive CORS header,
+ * and any consumer behind a different hostname resolves it to *itself*. The
+ * result is a guaranteed failure on every load — a request that stalls, then
+ * 404s, then falls back — which is what made the landing page's cards look
+ * empty and then suddenly appear after navigating away and back.
+ *
+ * Rather than serve a doomed request, recover the filename and treat it the
+ * same way as a relative legacy path.
+ */
+function isLoopbackMedia(raw: string): boolean {
+  return /^https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(?::\d+)?\/media\//.test(raw);
+}
+
+/**
  * Resolve the best local image for a category slug (or any free-text
  * identifier such as a service name).
  *
@@ -106,6 +124,13 @@ export function getServiceImage(
 ): string {
   const raw = normalize(service?.image_url);
   if (raw) {
+    // A dev-machine media URL can never load. Drop the origin and let the
+    // legacy-path branch below resolve the filename against the local tree.
+    if (isLoopbackMedia(raw)) {
+      const local = raw.replace(/^https?:\/\/[^/]+/, "");
+      return getServiceImage({ ...service, image_url: local });
+    }
+
     // Already absolute (http/https) — hand it to SafeImage untouched.
     if (/^https?:\/\//.test(raw)) return service!.image_url!;
 

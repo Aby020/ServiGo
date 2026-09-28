@@ -14,14 +14,6 @@ interface SafeImageProps {
   className?: string;
   /** Applied to the <img> itself; `object-cover` is the common value. */
   imgClassName?: string;
-  /**
-   * Give up on the current source after this many ms and advance to the next
-   * one. Guards against a remote URL that hangs forever without ever firing an
-   * `error` event. Defaults low: the fallback is a local file on the same
-   * origin, so a slower "correct" answer is worth less than a fast wrong one
-   * that still paints something.
-   */
-  timeoutMs?: number;
   /** Show a subtle wash + monogram while the image decodes. */
   withPlaceholder?: boolean;
   /** `eager` for above-the-fold / LCP images. */
@@ -41,7 +33,6 @@ interface SafeImageProps {
  *
  *   - no `src` at all            -> straight to `fallbackSrc`
  *   - the request 404s / aborts  -> advance to `fallbackSrc`
- *   - the request hangs          -> advance after `timeoutMs`
  *   - the fallback *also* fails  -> a styled placeholder tile with the
  *                                  category monogram (never a broken icon)
  *
@@ -67,7 +58,6 @@ export function SafeImage({
   alt,
   className,
   imgClassName,
-  timeoutMs = 2500,
   withPlaceholder = true,
   priority = false,
   sizes,
@@ -101,14 +91,6 @@ export function SafeImage({
     );
   }, [pairKey]);
 
-  // A request that never settles is a request that will never paint. The state
-  // change happens inside a timer callback, not synchronously in the effect.
-  useEffect(() => {
-    if (loaded || level >= 2 || timeoutMs <= 0) return;
-    const t = setTimeout(advance, timeoutMs);
-    return () => clearTimeout(t);
-  }, [loaded, level, timeoutMs, advance]);
-
   // Preload the priority source before the browser's own discovery pass. The
   // link is removed as soon as the image loads, or when the component gives
   // up on this source, so a failed hero does not leave a dangling hint that
@@ -136,9 +118,36 @@ export function SafeImage({
     setState((s) => (s.key === pairKey ? { ...s, loaded: true } : s));
   }, [pairKey]);
 
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
   const currentSrc = level === 0 ? primary : fallback;
   const showTile = level >= 2 || !currentSrc;
   const showPlaceholder = withPlaceholder && !loaded && !showTile;
+
+  /*
+   * Reconcile against the DOM after every commit.
+   *
+   * `load` is the only reliable signal that a *fresh* request painted, but it
+   * is not a complete one: a warm HTTP cache can finish decoding an image
+   * before React attaches this handler, so the event fires into the void and
+   * `loaded` stays false. The image would then sit at `opacity-0` for the rest
+   * of the mount — a fully loaded photograph that never becomes visible, and
+   * precisely the "blank cards on the landing page" symptom.
+   *
+   * `complete && naturalWidth > 0` is the browser's own answer to "did this
+   * already paint, successfully, at some point before I asked?" and it stays
+   * correct for cached, restored-from-bfcache, and bfcache-prerendered images.
+   * Failures have `complete === true` with `naturalWidth === 0`, which is why
+   * the width test is what distinguishes the two.
+   */
+  useEffect(() => {
+    if (loaded || showTile) return;
+    const img = imgRef.current;
+    if (img?.complete) {
+      if (img.naturalWidth > 0) handleLoad();
+      else advance();
+    }
+  }, [loaded, showTile, currentSrc, handleLoad, advance]);
 
   const boxStyle = useMemo(
     () => (aspectRatio ? { aspectRatio } : undefined),
@@ -176,8 +185,23 @@ export function SafeImage({
           </span>
         </div>
       ) : (
+        /*
+         * Deliberately a plain `<img>`, never `next/image`.
+         *
+         * Every source the registry hands us is a local file under
+         * `/public/images`, which the browser fetches straight from the
+         * static server. `next/image` would instead funnel each one through
+         * `/_next/image?url=…`, where a dozen concurrent home-page requests
+         * queue behind the dev server's single sharp worker — the images then
+         * land slower than an honest 404 would, and any request that has not
+         * answered by the time the old 2.5s timer fired was advanced to the
+         * fallback. Keep this as `<img>`; the AVIF/WebP negotiation in
+         * next.config.ts only applies to `next/image` callers, of which there
+         * are none.
+         */
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={imgRef}
           src={currentSrc}
           alt={alt}
           loading={priority ? "eager" : "lazy"}
