@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import environ
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -105,10 +106,11 @@ ASGI_APPLICATION = "config.asgi.application"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": dj_database_url.config(
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 }
 
 
@@ -152,6 +154,20 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# ── Media storage ────────────────────────────────────────────────────────────
+# Locally uploads land in MEDIA_ROOT. On Render the same models write to
+# Cloudinary, so set CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME) in the
+# environment and every ImageField/FileField is transparently offloaded.
+CLOUDINARY_URL = env("CLOUDINARY_URL", default="")
+CLOUDINARY_CLOUD_NAME = env("CLOUDINARY_CLOUD_NAME", default="")
+
+if CLOUDINARY_CLOUD_NAME or CLOUDINARY_URL:
+    INSTALLED_APPS += [
+        "cloudinary_storage",
+        "cloudinary",
+    ]
+    DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -219,9 +235,17 @@ SERVIGO_SITE_NAME = "ServiGo"
 SERVIGO_SITE_TAGLINE = "Your trusted home services partner"
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+# The Next.js frontend runs on a different origin, so every origin it may be
+# served from has to be allowed explicitly — except Render/Vercel preview
+# deploys, whose hostnames are not known ahead of time. Those are matched by
+# the regexes below rather than by `*`, which django-cors-headers refuses.
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=["http://localhost:3000", "http://127.0.0.1:3000"],
+)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.onrender\.com$",
+    r"^https://.*\.vercel\.app$",
 ]
 
 # ── Django REST Framework ─────────────────────────────────────────────────────
