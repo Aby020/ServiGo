@@ -413,6 +413,13 @@ class BookingStatusHistorySerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+        # Chronological, oldest first. The customer's stepper and the staff
+        # audit feed both read this as the story of the job, and the model's
+        # default (`-created_at`) is newest first — which reads correctly as an
+        # activity feed and backwards as a timeline. Ordering by `id` as well
+        # breaks the tie when two rows share a timestamp, so two milestones
+        # recorded inside the same millisecond cannot swap places.
+        ordering = ["created_at", "id"]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_changed_by_name(self, obj):
@@ -583,8 +590,10 @@ class StaffBookingStatusSerializer(serializers.Serializer):
 
     #: Statuses a booking can never leave. Completing or cancelling a job is
     #: terminal: a technician who realises they marked the wrong job done
-    #: needs a human to reopen it, not a second click.
-    TERMINAL_STATUSES = {Booking.Status.COMPLETED, Booking.Status.CANCELLED}
+    #: needs a human to reopen it, not a second click. Mirrors
+    #: `Booking.TERMINAL_STATUSES` — the model's is the definition, this is the
+    #: serializer's local alias for readability.
+    TERMINAL_STATUSES = set(Booking.TERMINAL_STATUSES)
 
     def validate(self, attrs):
         booking = self.context["booking"]
@@ -609,14 +618,36 @@ class StaffBookingStatusSerializer(serializers.Serializer):
                 "This booking is assigned to another technician. Claim it first."
             )
 
+        # Sequential is the whole point of the lifecycle: one status ahead at a
+        # time, never two. Without this the endpoint would accept a jump that
+        # skips the milestones in between, producing an audit trail that claims
+        # a technician accepted, arrived and started work when only the last of
+        # those ever happened. This is the rule the dispatch dashboard's single
+        # progressive button relies on, and enforcing it here rather than in
+        # the view means an admin correcting a job by hand is held to the same
+        # sequence a technician is.
+        if not Booking.can_transition(current, target):
+            expected = Booking.next_status(current)
+            if expected is None:
+                raise serializers.ValidationError(
+                    f"Cannot move a booking from "
+                    f"{booking.get_status_display().lower()} to "
+                    f"{dict(Booking.Status.choices).get(target, target).lower()}."
+                )
+            raise serializers.ValidationError(
+                f"Bookings move one stage at a time: this booking is "
+                f"{booking.get_status_display().lower()}, so the next stage is "
+                f"'{dict(Booking.Status.choices).get(expected).lower()}'."
+            )
+
         return attrs
 
 
 class StaffBookingActionSerializer(serializers.Serializer):
     """
-    Validates one of the four explicit dispatch milestones.
+    Validates one of the five explicit dispatch milestones.
 
-    The dispatch desk advances a job through four named stages rather than by
+    The dispatch desk advances a job through five named stages rather than by
     posting an arbitrary status. Naming them is the point: `start_work` cannot
     mean anything other than "work began", so a client that posts a status
     directly has no way to skip arrival, and a double-click on an already-passed
@@ -624,36 +655,54 @@ class StaffBookingActionSerializer(serializers.Serializer):
 
     Two layers of guard, mirroring :class:`StaffBookingStatusSerializer`:
 
-      * ``validate_action`` rejects a name outside the four. Field validation —
+      * ``validate_action`` rejects a name outside the five. Field validation —
         a 400 with a field key.
       * ``validate`` rejects a stage the booking can't legally be at right now
         (wrong order, wrong owner, terminal). Business rule — a 400 with a
         single ``detail`` key.
+
+    Unlike the free-form status endpoint, every action here maps to exactly one
+    status and is legal from exactly one status, so the required-from sets below
+    are all single-element. A stage is either the next thing that can happen to
+    this job or it is refused; there is no "allowed from" that spans two stages.
     """
 
-    #: The stage order *is* the allowed order. `claim` is exempt from the
-    #: ordering check because it is the entry point rather than a step through
-    #: the lifecycle.
-    ACTION_ORDER = ("claim", "reached_location", "start_work", "complete_work")
+    #: The stage order *is* the allowed order. Every action, `claim` included, is
+    #: a step through the lifecycle — the first of the six status milestones is
+    #: the customer creating the booking, so a technician's first move is the
+    #: second.
+    ACTION_ORDER = (
+        "claim",
+        "accept_job",
+        "reached_location",
+        "start_work",
+        "complete_work",
+    )
 
     #: Statuses from which the job may be claimed. Claiming is the only stage
-    #: with no required predecessor.
-    CLAIMABLE_STATUSES = {Booking.Status.PENDING, Booking.Status.CONFIRMED}
+    #: with no required predecessor — it is the entry point rather than a step
+    #: through the lifecycle.
+    CLAIMABLE_STATUSES = {Booking.Status.PENDING}
 
     #: Statuses that close a job. Nothing reopens one.
-    TERMINAL_STATUSES = {Booking.Status.COMPLETED, Booking.Status.CANCELLED}
+    TERMINAL_STATUSES = set(Booking.TERMINAL_STATUSES)
 
     #: Status each stage may be fired from, keyed by action. `claim` is absent
     #: for the reason given on `ACTION_ORDER`.
     REQUIRED_STATUS = {
-        "reached_location": {Booking.Status.PENDING, Booking.Status.CONFIRMED},
-        "start_work": {Booking.Status.ON_SITE},
+        "accept_job": {Booking.Status.CLAIMED},
+        "reached_location": {Booking.Status.ACCEPTED},
+        "start_work": {Booking.Status.ARRIVED},
         "complete_work": {Booking.Status.IN_PROGRESS},
     }
 
-    #: The status each stage moves the job into. `claim` writes no status.
+    #: The status each stage moves the job into. `claim` writes a status too —
+    #: claiming *is* the `claimed` milestone, not an assignment that happens to
+    #: precede one.
     RESULT_STATUS = {
-        "reached_location": Booking.Status.ON_SITE,
+        "claim": Booking.Status.CLAIMED,
+        "accept_job": Booking.Status.ACCEPTED,
+        "reached_location": Booking.Status.ARRIVED,
         "start_work": Booking.Status.IN_PROGRESS,
         "complete_work": Booking.Status.COMPLETED,
     }
@@ -662,8 +711,9 @@ class StaffBookingActionSerializer(serializers.Serializer):
         choices=ACTION_ORDER,
         help_text=(
             "Which milestone to record: `claim` takes an unassigned job, "
-            "`reached_location` records arrival on site, `start_work` begins "
-            "the job, `complete_work` closes it."
+            "`accept_job` confirms the dispatch, `reached_location` records "
+            "arrival on site, `start_work` begins the job, `complete_work` "
+            "closes it."
         ),
     )
     notes = serializers.CharField(
@@ -671,8 +721,8 @@ class StaffBookingActionSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=1000,
         help_text=(
-            "Optional note recorded against the transition and shown to the "
-            "customer on their booking timeline."
+            "Optional note appended to the transition's fixed description and "
+            "shown to the customer on their booking timeline."
         ),
     )
 
@@ -687,14 +737,20 @@ class StaffBookingActionSerializer(serializers.Serializer):
                     f"This booking is already {booking.get_status_display().lower()} "
                     "and can no longer be claimed."
                 )
-            # Already the caller's job — idempotent, not an error. The view
-            # returns 200 without writing a second audit row, so a retry after
-            # a dropped response doesn't spam the timeline.
-            if booking.assigned_staff_id == actor.id:
-                return attrs
             if booking.assigned_staff_id is not None:
+                # Already the caller's job — idempotent, not an error. The view
+                # returns 200 without writing a second audit row, so a retry
+                # after a dropped response doesn't spam the timeline. Owned by
+                # anyone else, it is a genuine conflict.
+                if booking.assigned_staff_id == actor.id:
+                    return attrs
                 raise serializers.ValidationError(
                     "This booking is already assigned to another technician."
+                )
+            if booking.status not in self.CLAIMABLE_STATUSES:
+                raise serializers.ValidationError(
+                    f"Cannot claim this booking while it is "
+                    f"{booking.get_status_display().lower()}."
                 )
             return attrs
 
@@ -706,9 +762,16 @@ class StaffBookingActionSerializer(serializers.Serializer):
 
         allowed = self.REQUIRED_STATUS[action]
         if booking.status not in allowed:
+            expected = Booking.next_status(booking.status)
             raise serializers.ValidationError(
                 f"Cannot record '{action}' while this booking is "
                 f"{booking.get_status_display().lower()}."
+                + (
+                    f" The next stage is "
+                    f"'{dict(Booking.Status.choices).get(expected).lower()}'."
+                    if expected
+                    else ""
+                )
             )
 
         return attrs
@@ -883,13 +946,16 @@ class BookingCreateSerializer(serializers.Serializer):
             status=Booking.Status.PENDING,
         )
 
-        # Initial history row documenting creation
+        # Initial history row documenting creation. The wording is the model's
+        # milestone copy for `pending` rather than a sentence written here, so
+        # the first entry the customer sees matches the fixed lifecycle language
+        # every later transition uses.
         BookingStatusHistory.objects.create(
             booking=booking,
             previous_status="",
             new_status=Booking.Status.PENDING,
             changed_by=user,
-            notes="Booking created by customer",
+            notes=Booking.milestone_note(Booking.Status.PENDING),
         )
 
         return booking

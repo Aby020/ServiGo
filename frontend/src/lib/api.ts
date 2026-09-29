@@ -263,10 +263,14 @@ export async function fetchServiceDetail(id: number): Promise<ServiceDetail> {
 
 // ── Booking types ─────────────────────────────────────────────────────────────
 
+/**
+ * Mirrors `bookings.models.Booking.Status`. Order is the dispatch order.
+ */
 export type BookingStatus =
   | "pending"
-  | "confirmed"
-  | "on_site"
+  | "claimed"
+  | "accepted"
+  | "arrived"
   | "in_progress"
   | "completed"
   | "cancelled";
@@ -484,14 +488,16 @@ export async function updateStaffBookingStatus(
 }
 
 /**
- * The four dispatch milestones, in the order they must be recorded.
+ * The five dispatch milestones, in the order they must be recorded.
  *
  * Naming them rather than posting a status is the whole point: the server can
  * reject `start_work` on a job nobody has arrived at, which is exactly the
- * mistake a free-form status POST cannot catch.
+ * mistake a free-form status POST cannot catch. `claim` is the sixth milestone
+ * (`pending`) already having happened — the customer made the booking.
  */
 export type StaffBookingAction =
   | "claim"
+  | "accept_job"
   | "reached_location"
   | "start_work"
   | "complete_work";

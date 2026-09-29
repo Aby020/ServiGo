@@ -201,10 +201,17 @@ class AssignTests(StaffDispatchTestCase):
 
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.assigned_staff_id, self.staff.id)
+        # Claiming enters the `claimed` milestone rather than only recording
+        # an assignee; the customer's stepper reads the status, not the FK.
+        self.assertEqual(self.booking.status, Booking.Status.CLAIMED)
 
         row = BookingStatusHistory.objects.get(booking=self.booking)
         self.assertEqual(row.changed_by_id, self.staff.id)
-        self.assertEqual(row.notes, "Assigned to technician Tara Iyer")
+        self.assertEqual(
+            row.notes,
+            f"{Booking.milestone_note(Booking.Status.CLAIMED)} — "
+            "Assigned to technician Tara Iyer",
+        )
 
     def test_reassigning_own_job_is_idempotent(self):
         self.as_staff()
@@ -237,27 +244,51 @@ class StatusTransitionTests(StaffDispatchTestCase):
         self._claim()
         res = self.client.post(
             status_url(self.booking.pk),
-            {"status": Booking.Status.IN_PROGRESS, "notes": "On site, tools unpacked"},
+            {"status": Booking.Status.ACCEPTED, "notes": "Confirmed with the customer"},
             format="json",
         )
         self.assertEqual(res.status_code, 200, res.data)
 
         self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, Booking.Status.IN_PROGRESS)
+        self.assertEqual(self.booking.status, Booking.Status.ACCEPTED)
 
         row = BookingStatusHistory.objects.filter(booking=self.booking).latest("id")
-        self.assertEqual(row.previous_status, Booking.Status.PENDING)
-        self.assertEqual(row.new_status, Booking.Status.IN_PROGRESS)
-        self.assertEqual(row.notes, "On site, tools unpacked")
+        self.assertEqual(row.previous_status, Booking.Status.CLAIMED)
+        self.assertEqual(row.new_status, Booking.Status.ACCEPTED)
+        # The stage's fixed description, with the caller's note appended rather
+        # than replacing it — the audit row always names the milestone.
+        self.assertEqual(
+            row.notes,
+            f"{Booking.milestone_note(Booking.Status.ACCEPTED)} — "
+            "Confirmed with the customer",
+        )
         self.assertEqual(row.changed_by_id, self.staff.id)
 
-    def test_completion_stamps_completed_at(self):
+    def test_out_of_order_transition_is_refused(self):
         self._claim()
-        self.client.post(
+        # `in_progress` is three milestones ahead of `claimed`. Accepting it
+        # would record work that was never shown to have started.
+        res = self.client.post(
             status_url(self.booking.pk),
             {"status": Booking.Status.IN_PROGRESS},
             format="json",
         )
+        self.assertEqual(res.status_code, 400)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CLAIMED)
+
+    def test_completion_stamps_completed_at(self):
+        self._claim()
+        for status in (
+            Booking.Status.ACCEPTED,
+            Booking.Status.ARRIVED,
+            Booking.Status.IN_PROGRESS,
+        ):
+            res = self.client.post(
+                status_url(self.booking.pk), {"status": status}, format="json"
+            )
+            self.assertEqual(res.status_code, 200, res.data)
+
         res = self.client.post(
             status_url(self.booking.pk),
             {"status": Booking.Status.COMPLETED},
@@ -293,7 +324,7 @@ class StatusTransitionTests(StaffDispatchTestCase):
         self._claim()
         res = self.client.post(
             status_url(self.booking.pk),
-            {"status": Booking.Status.PENDING},
+            {"status": Booking.Status.CLAIMED},
             format="json",
         )
         self.assertEqual(res.status_code, 400)
@@ -305,7 +336,7 @@ class StatusTransitionTests(StaffDispatchTestCase):
         self.as_staff()  # a different technician
         res = self.client.post(
             status_url(self.booking.pk),
-            {"status": Booking.Status.IN_PROGRESS},
+            {"status": Booking.Status.ACCEPTED},
             format="json",
         )
         self.assertEqual(res.status_code, 400)
@@ -329,7 +360,7 @@ class CustomerTimelinePropagationTests(StaffDispatchTestCase):
         self.client.post(assign_url(self.booking.pk), {}, format="json")
         self.client.post(
             status_url(self.booking.pk),
-            {"status": Booking.Status.IN_PROGRESS, "notes": "Arrived at 10:35"},
+            {"status": Booking.Status.ACCEPTED, "notes": "Dispatch confirmed at 10:05"},
             format="json",
         )
 
@@ -338,14 +369,26 @@ class CustomerTimelinePropagationTests(StaffDispatchTestCase):
         res = self.client.get(f"/api/bookings/{self.booking.pk}/")
         self.assertEqual(res.status_code, 200)
 
-        self.assertEqual(res.data["status"], Booking.Status.IN_PROGRESS)
+        self.assertEqual(res.data["status"], Booking.Status.ACCEPTED)
 
         history = res.data["status_history"]
         self.assertTrue(history, "customer timeline must not be empty")
 
-        top = history[0]  # newest first
-        self.assertEqual(top["new_status"], Booking.Status.IN_PROGRESS)
-        self.assertEqual(top["notes"], "Arrived at 10:35")
+        # Chronological, oldest first — the customer's stepper reads the array
+        # as the order things happened, so a newest-first payload would render
+        # the trail backwards.
+        self.assertEqual(
+            [entry["new_status"] for entry in history],
+            [Booking.Status.CLAIMED, Booking.Status.ACCEPTED],
+        )
+        self.assertEqual(
+            [entry["id"] for entry in history],
+            sorted(entry["id"] for entry in history),
+        )
+
+        top = history[-1]  # newest
+        self.assertEqual(top["new_status"], Booking.Status.ACCEPTED)
+        self.assertIn("Dispatch confirmed at 10:05", top["notes"])
         self.assertEqual(top["changed_by_name"], "Tara Iyer")
 
         # The claim itself is on the customer's timeline too.

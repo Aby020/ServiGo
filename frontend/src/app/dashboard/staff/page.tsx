@@ -28,11 +28,11 @@
  * ── Why a milestone is instant ───────────────────────────────────────────────
  * A refetch on its own is not an instant transition — it is a request, and the
  * technician is still looking at the old card while it is in flight. So every
- * status change is also applied to the cache the moment the button is pressed
- * (`onMutate`), and the refetch that follows is there to *confirm* it rather
- * than to produce it. The button therefore reads "Start work" the instant the
- * confirmation closes, and the request that lands a moment later is normally a
- * no-op the technician never sees.
+ * stage change — `claim` included — is also applied to the cache the moment the
+ * button is pressed (`onMutate`), and the refetch that follows is there to
+ * *confirm* it rather than to produce it. The button therefore reads the next
+ * stage's label the instant the confirmation closes, and the request that lands
+ * a moment later is normally a no-op the technician never sees.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -98,7 +98,11 @@ const TABS: TabDef[] = [
     assigned: "unassigned",
     // A cancelled job is nobody's problem to claim, and a completed one is
     // already closed — showing either in the "pick this up" list is noise.
-    statuses: ["pending", "confirmed", "on_site", "in_progress"],
+    // `claimed` is here because a booking whose status was advanced by a
+    // colleague's dispatch that has since been unassigned still needs a
+    // technician to finish driving it; the button reads "Claim" only for the
+    // jobs that genuinely start the walk.
+    statuses: ["pending", "claimed", "accepted", "arrived", "in_progress"],
     empty: "Queue is clear — every request has a technician.",
   },
   {
@@ -106,7 +110,7 @@ const TABS: TabDef[] = [
     label: "My jobs",
     icon: ClipboardList,
     assigned: "mine",
-    statuses: ["pending", "confirmed", "on_site", "in_progress"],
+    statuses: ["pending", "claimed", "accepted", "arrived", "in_progress"],
     empty: "You have no active jobs. Claim one from the unassigned queue.",
   },
   {
@@ -120,36 +124,52 @@ const TABS: TabDef[] = [
 ];
 
 /**
- * The next logical dispatch milestone.
+ * The five dispatch stages, in the order they happen.
  *
- * It is a straight line — the user can only travel forward one step at a time.
- * If the booking belongs to someone else, or is already closed, there is nothing
- * more to do on it.
+ * This is the single place the button label for each stage is written down. The
+ * lifecycle `pending → claimed → accepted → arrived → in_progress → completed`
+ * is strictly sequential on the server (`Booking.LIFECYCLE`), so the next action
+ * is a function of the current status and nothing else — one row per status,
+ * read as a lookup, rather than a `switch` that has to be kept in step by hand.
+ *
+ * The keys are the four statuses a technician can *advance from*. `claim` is not
+ * in this table because it is the one action that does not merely move the
+ * status — it also takes the job — and it is the only one available to a booking
+ * with no assignee, so it is decided first in `getNextAction`. A booking that is
+ * assigned but still `pending` is deliberately absent: claiming sets the status
+ * to `claimed`, so that combination cannot arise from the UI, and the server
+ * would refuse to advance it from here anyway. It renders no button rather than
+ * one that is guaranteed to 400.
  */
+const STAGE_ACTIONS: Partial<Record<BookingStatus, {
+  action: StaffBookingAction;
+  label: string;
+  icon: typeof PlayCircle;
+}>> = {
+  claimed: { action: "accept_job", label: "Accept Job", icon: UserCheck },
+  accepted: { action: "reached_location", label: "Reached Location", icon: PlayCircle },
+  arrived: { action: "start_work", label: "Start Task", icon: PlayCircle },
+  in_progress: { action: "complete_work", label: "Complete Task", icon: CheckCircle2 },
+};
+
 function getNextAction(
   booking: StaffBooking,
   actorId: number,
 ): { action: StaffBookingAction; label: string; icon: typeof PlayCircle } | null {
-  if (booking.assigned_staff_id === null && ["pending", "confirmed"].includes(booking.status)) {
-    return { action: "claim", label: "Claim job", icon: UserCheck };
+  // Unclaimed jobs are claimable, and claiming is what puts them on the
+  // lifecycle in the first place. A job that is already assigned is someone
+  // else's; the desk shows it read-only.
+  if (booking.assigned_staff_id === null) {
+    return booking.status === "pending"
+      ? { action: "claim", label: "Claim Job", icon: UserCheck }
+      : null;
   }
 
-  if (booking.assigned_staff_id !== actorId) {
-    return null;
-  }
+  if (booking.assigned_staff_id !== actorId) return null;
 
-  switch (booking.status) {
-    case "pending":
-    case "confirmed":
-      // A claimed job always moves to the site next, even if it was pre-confirmed.
-      return { action: "reached_location", label: "Reached location", icon: PlayCircle };
-    case "on_site":
-      return { action: "start_work", label: "Start work", icon: PlayCircle };
-    case "in_progress":
-      return { action: "complete_work", label: "Work complete", icon: CheckCircle2 };
-    default:
-      return null;
-  }
+  // A status outside the table — terminal, or one from a newer server than this
+  // bundle — renders no button at all, never a guessed one.
+  return STAGE_ACTIONS[booking.status] ?? null;
 }
 
 /**
@@ -168,16 +188,22 @@ function tabMatches(tab: TabDef, booking: StaffBooking, actorId: number): boolea
 }
 
 /**
- * Where each milestone lands, for the optimistic patch.
+ * Where each action lands, for the optimistic patch.
  *
- * `claim` is absent: it moves the assignee, not the status. The three status
- * transitions are a flat map precisely so the optimistic pass can be total
- * over the actions it handles — `NEXT_STATUS[action]` with a `claim` entry
- * would type-check and then paint a claimed-but-unadvanced job into a queue it
- * does not belong to.
+ * `claim` is in here. It used to be the one action with no predicted status,
+ * on the reasoning that claiming only moves the assignee and therefore only
+ * *removes* a row from a list — and a row vanishing under the technician's
+ * cursor is a bad thing to guess at. But claiming a job now enters the
+ * `claimed` milestone, so its visible effect is a move between two queues at
+ * once, and both halves of that move are predictable: the row leaves Unassigned
+ * and appears under My jobs. Doing it optimistically is what makes the desk feel
+ * instant; a wrong guess is corrected by `onError`, which invalidates rather
+ * than patching back, so the worst case is one refetch and no data left behind.
  */
-const NEXT_STATUS: Record<Exclude<StaffBookingAction, "claim">, BookingStatus> = {
-  reached_location: "on_site",
+const NEXT_STATUS: Record<StaffBookingAction, BookingStatus> = {
+  claim: "claimed",
+  accept_job: "accepted",
+  reached_location: "arrived",
   start_work: "in_progress",
   complete_work: "completed",
 };
@@ -190,7 +216,9 @@ const NEXT_STATUS: Record<Exclude<StaffBookingAction, "claim">, BookingStatus> =
  * Notes are optional on the wire but the modal makes them easy to type,
  * because a bare flip reaches the customer as a generic timeline entry. The
  * `action`/`booking` pairing is deliberate: a modal that outlives the tab it was
- * opened from must not be able to fire against a different booking.
+ * opened from must not be able to fire against a different booking. The server
+ * prefixes the stage's fixed description to whatever is typed here, so the
+ * milestone is named even when the technician writes nothing.
  */
 function StatusModal({
   booking,
@@ -501,7 +529,7 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
   };
 
   /**
-   * One mutation for all four milestones, `claim` included.
+   * One mutation for all five stages, `claim` included.
    *
    * The server enforces the ordering, so the client does not need a second
    * code path for "claim" — it is the same POST with a different name, and
@@ -529,25 +557,33 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
       setPendingId(id);
 
       // ── Optimistic patch ──────────────────────────────────────────────────
-      // `claim` is not optimistically applied, and the omission is deliberate.
-      // Its whole visible effect is *removing the job from this list* (it goes
-      // from unassigned to mine, so it leaves the Unassigned tab and only
-      // appears under My jobs if that tab has been opened). Removing the row
-      // under the technician's cursor the instant they click, and then being
-      // wrong because a colleague claimed it a second earlier, reads as the
-      // app losing the job — and a `null` assignee in the query function
-      // would throw and leave the queue on an error boundary. Status changes
-      // get the optimistic path; the one that empties a list does not.
-      if (action === "claim") return;
-
       // What the technician is about to be looking at: this job, carrying the
       // status the server is about to confirm, sitting in whichever queue that
-      // status now belongs to. It carries forward the fields the response
-      // does not have (email, phone) so the card renders identically to its
+      // status now belongs to. It carries forward the fields the response does
+      // not have (email, phone) so the card renders identically to its
       // neighbours instead of blanking them.
+      const current = bookings.find((b) => b.id === id);
+      // Not in this tab's rendered list — nothing to predict from. This happens
+      // when a mutation outlives a tab switch; the invalidation that follows
+      // still reconciles every queue.
+      if (!current) return;
+
+      // `claim` moves the job *between* queues, so the predicted row has to
+      // carry the new assignee as well as the new status, or `tabMatches` would
+      // place it in neither list and the job would disappear from the desk
+      // until the refetch. `assigned_staff_name` comes from the signed-in user
+      // rather than the response so the card reads correctly on this frame.
       const predicted: StaffBooking = {
-        ...bookings.find((b) => b.id === id)!,
+        ...current,
         status: NEXT_STATUS[action],
+        ...(action === "claim"
+          ? {
+              assigned_staff_id: user.id,
+              assigned_staff_name: [user.first_name, user.last_name]
+                .filter(Boolean)
+                .join(" ") || user.username,
+            }
+          : {}),
       };
 
       // Applied to every queue, not just the one on screen, because a row
@@ -605,8 +641,8 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
       // the customer's timeline and history survive a technician's action
       // instead of being replaced by a differently-shaped body.
       //
-      // `claim` is absent from this on purpose: it does not move the status,
-      // only the assignee.
+      // `claim` is included: it enters the `claimed` milestone like every other
+      // stage, so the customer's stepper needs the same correction.
       if (updated.status) {
         queryClient.setQueryData<BookingDetail>(["booking", id], (cached) =>
           cached ? { ...cached, status: updated.status } : cached,
@@ -621,11 +657,10 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
       // fine — nothing downstream depends on this returning.
       await invalidateAll(id);
 
-      // `claim` changes the assignee and nothing else, so the queues have to
-      // be re-derived from the server's answer: the optimistic pass skipped
-      // it precisely because the row leaves one list and enters another. This
-      // is the same await, and the card behind the button is now the
-      // reassigned one.
+      // `claim` also moves the row between two queues, so the server's answer
+      // is the authority on where it landed. The optimistic pass already put it
+      // there; this awaits the refetch that confirms it before the modal state
+      // is torn down, so the technician never sees the card hop.
       if (action === "claim" && updated.assigned_staff_id) {
         queryClient.setQueryData<BookingDetail>(["booking", id], (cached) =>
           cached ? { ...cached, status: updated.status } : cached,

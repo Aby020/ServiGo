@@ -64,8 +64,9 @@ import { cn } from "@/lib/utils";
 const STATUSES = [
   { key: "all", label: "All" },
   { key: "pending", label: "Pending" },
-  { key: "confirmed", label: "Confirmed" },
-  { key: "on_site", label: "On site" },
+  { key: "claimed", label: "Claimed" },
+  { key: "accepted", label: "Accepted" },
+  { key: "arrived", label: "Arrived" },
   { key: "in_progress", label: "In progress" },
   { key: "completed", label: "Completed" },
   { key: "cancelled", label: "Cancelled" },

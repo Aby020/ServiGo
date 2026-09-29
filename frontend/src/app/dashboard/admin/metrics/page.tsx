@@ -54,7 +54,9 @@ const ACTIVITY_TONE: Record<string, BadgeTone> = {
   completed: "success",
   cancelled: "danger",
   in_progress: "primary",
-  confirmed: "info",
+  arrived: "primary",
+  accepted: "info",
+  claimed: "info",
   pending: "warning",
 };
 
@@ -87,7 +89,7 @@ function buildStats(metrics: AdminMetrics | undefined): Stat[] {
     {
       label: "Active jobs",
       value: metrics ? String(metrics.active_jobs) : dash,
-      caption: "Pending, confirmed or in progress — still actionable by staff.",
+      caption: "Pending through in progress — still actionable by staff.",
       icon: ClipboardCheck,
       tone: "text-primary",
     },

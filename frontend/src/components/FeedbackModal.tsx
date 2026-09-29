@@ -38,8 +38,15 @@ const MAX_RATING = 5;
 /** The five stars, so the array is the single source of the scale. */
 const STARS = Array.from({ length: MAX_RATING }, (_, i) => i + 1);
 
-/** Rating → the wording a customer sees under the stars. */
-const RATING_CAPTION: Record<number, string> = {
+/**
+ * Rating → the wording a customer sees under the stars.
+ *
+ * Exported because the inline "Rate & Review Service" card on the booking
+ * detail page shows the same caption under its own star row. Two copies of this
+ * table would drift, and a customer who picks 4 stars and sees two different
+ * descriptions depending on which control they used is a bug report.
+ */
+export const RATING_CAPTION: Record<number, string> = {
   1: "Poor — not what we expected",
   2: "Below expectations",
   3: "Fine — met the basics",

@@ -13,30 +13,72 @@ import type { BookingStatus, EvBookingStatus } from "./api";
 
 export const BOOKING_STATUSES: BookingStatus[] = [
   "pending",
-  "confirmed",
-  "on_site",
+  "claimed",
+  "accepted",
+  "arrived",
   "in_progress",
   "completed",
   "cancelled",
 ];
 
-/** Forward path the timeline walks. CANCELLED is a branch, not a step. */
+/**
+ * The five milestones the customer watches, in order.
+ *
+ * One entry is not one backend status. The first — "Booking Placed" — is
+ * reached at `pending`, and the second — "Technician Assigned & Accepted" —
+ * covers `claimed` *and* `accepted`, because from the customer's side those
+ * are a single wait: someone is coming. The pairing is declared here rather
+ * than derived, since collapsing two statuses into one step is a presentation
+ * decision, not a fact about the lifecycle. `statuses` is the full set that
+ * lights a step up, so the step illuminates on the earlier of the two and stays
+ * lit — a step that flickered backwards when the technician accepted would be
+ * worse than a slightly coarse one.
+ *
+ * CANCELLED is absent because it is a branch off this path, not a step on it.
+ */
 export const BOOKING_TIMELINE: {
   status: BookingStatus;
   label: string;
   blurb: string;
+  statuses: BookingStatus[];
 }[] = [
-  { status: "pending", label: "Requested", blurb: "We have your request" },
-  { status: "confirmed", label: "Confirmed", blurb: "A technician is assigned" },
-  { status: "on_site", label: "On site", blurb: "Your technician has arrived" },
-  { status: "in_progress", label: "In progress", blurb: "Work is underway" },
-  { status: "completed", label: "Completed", blurb: "Job finished and closed" },
+  {
+    status: "pending",
+    label: "Booking Placed",
+    blurb: "We have your request",
+    statuses: ["pending"],
+  },
+  {
+    status: "claimed",
+    label: "Technician Assigned & Accepted",
+    blurb: "A technician is on the way",
+    statuses: ["claimed", "accepted"],
+  },
+  {
+    status: "arrived",
+    label: "Technician Reached Location",
+    blurb: "Your technician has arrived",
+    statuses: ["arrived"],
+  },
+  {
+    status: "in_progress",
+    label: "Task In Progress",
+    blurb: "Work is underway",
+    statuses: ["in_progress"],
+  },
+  {
+    status: "completed",
+    label: "Completed",
+    blurb: "Job finished and closed",
+    statuses: ["completed"],
+  },
 ];
 
 export const STATUS_TONE: Record<BookingStatus, BadgeTone> = {
   pending: "warning",
-  confirmed: "info",
-  on_site: "primary",
+  claimed: "info",
+  accepted: "info",
+  arrived: "primary",
   in_progress: "primary",
   completed: "success",
   cancelled: "danger",
@@ -44,8 +86,9 @@ export const STATUS_TONE: Record<BookingStatus, BadgeTone> = {
 
 export const STATUS_LABEL: Record<BookingStatus, string> = {
   pending: "Pending",
-  confirmed: "Confirmed",
-  on_site: "On site",
+  claimed: "Claimed",
+  accepted: "Accepted",
+  arrived: "Arrived",
   in_progress: "In progress",
   completed: "Completed",
   cancelled: "Cancelled",
@@ -105,6 +148,11 @@ export function isCompletedStatus(status: string | null | undefined): boolean {
 /**
  * Where `status` sits on the timeline.
  *
+ * Matching is over each step's `statuses` set rather than its single `status`,
+ * because a step can stand for more than one backend status — `claimed` and
+ * `accepted` are the same wait as far as the customer is concerned, and both
+ * have to resolve to the same step or the marker would jump.
+ *
  * Never returns `-1`. An unrecognised status used to fall through
  * `findIndex` to `-1`, and every step then rendered as *undone* — so a
  * single unknown value silently displayed a completed job as though nothing
@@ -121,7 +169,7 @@ export function statusIndex(status: string | null | undefined): number {
   const normalized = normalizeStatus(status);
   if (normalized === null) return -1;
   if (normalized === "cancelled") return 0;
-  return BOOKING_TIMELINE.findIndex((s) => s.status === normalized);
+  return BOOKING_TIMELINE.findIndex((s) => s.statuses.includes(normalized));
 }
 
 /**

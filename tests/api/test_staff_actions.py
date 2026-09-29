@@ -1,5 +1,5 @@
 """
-Tests for the four-stage dispatch action endpoint.
+Tests for the five-stage dispatch action endpoint.
 
 The dashboard's whole value proposition is that a technician can only move a
 job forward one milestone at a time, and that the milestone survives a page
@@ -90,26 +90,31 @@ class StaffActionTestCase(APITestCase):
 
 
 class StaffActionOrderingTests(StaffActionTestCase):
-    """The full four-stage walk, and the refusals around it."""
+    """The full five-stage walk, and the refusals around it."""
 
-    def test_claim_assigns_without_changing_status(self):
+    def test_claim_assigns_and_enters_the_claimed_milestone(self):
         response = self.fire("claim")
 
         self.assertEqual(response.status_code, 200)
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.assigned_staff_id, self.staff.id)
-        # Claim is assignment only. If it also confirmed, the audit trail
-        # would claim a technician accepted the job before they had seen it.
-        self.assertEqual(self.booking.status, Booking.Status.PENDING)
+        # Claiming *is* the first technician milestone. Leaving the status at
+        # `pending` while a technician is already assigned would render a
+        # stepper telling the customer nobody is coming when one is.
+        self.assertEqual(self.booking.status, Booking.Status.CLAIMED)
 
     def test_claim_writes_an_audit_row(self):
         self.fire("claim")
 
         row = BookingStatusHistory.objects.get(booking=self.booking)
         self.assertEqual(row.changed_by_id, self.staff.id)
-        # Claim does not move the status, so the row's status pair is the same
-        # value on both sides. What it does record is who took the job.
-        self.assertEqual(row.new_status, Booking.Status.PENDING)
+        self.assertEqual(row.previous_status, Booking.Status.PENDING)
+        self.assertEqual(row.new_status, Booking.Status.CLAIMED)
+        # Fixed milestone wording first, technician identity second — the row
+        # has to name the milestone no matter what the caller wrote.
+        self.assertTrue(
+            row.notes.startswith(Booking.milestone_note(Booking.Status.CLAIMED))
+        )
         self.assertIn(str(self.staff.first_name), row.notes)
 
     def test_claim_is_idempotent_and_does_not_double_audit(self):
@@ -127,36 +132,66 @@ class StaffActionOrderingTests(StaffActionTestCase):
             BookingStatusHistory.objects.filter(booking=self.booking).count(), 1
         )
 
-    def test_reached_location_sets_on_site(self):
+    def test_accept_job_sets_accepted(self):
         self.fire("claim")
+        response = self.fire("accept_job")
+
+        self.assertEqual(response.status_code, 200)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.ACCEPTED)
+
+    def test_accept_job_requires_a_claim(self):
+        response = self.fire("accept_job")
+
+        self.assertEqual(response.status_code, 400)
+        self.booking.refresh_from_db()
+        self.assertIsNone(self.booking.assigned_staff_id)
+
+    def test_reached_location_sets_arrived(self):
+        self.fire("claim")
+        self.fire("accept_job")
         response = self.fire("reached_location")
 
         self.assertEqual(response.status_code, 200)
         self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, Booking.Status.ON_SITE)
+        self.assertEqual(self.booking.status, Booking.Status.ARRIVED)
         # Arrival is the first moment the job is demonstrably happening, so it
         # is what stamps confirmed_at on this path.
         self.assertIsNotNone(self.booking.confirmed_at)
 
     def test_start_work_requires_arrival(self):
         self.fire("claim")
+        self.fire("accept_job")
         response = self.fire("start_work")
 
         self.assertEqual(response.status_code, 400)
         self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, Booking.Status.PENDING)
+        self.assertEqual(self.booking.status, Booking.Status.ACCEPTED)
+
+    def test_reached_location_requires_acceptance(self):
+        self.fire("claim")
+        response = self.fire("reached_location")
+
+        # Arrival is two milestones past `claimed` in the new lifecycle, so
+        # this is the regression guard for the split: what used to be a legal
+        # second click is now an out-of-order jump.
+        self.assertEqual(response.status_code, 400)
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CLAIMED)
 
     def test_complete_work_requires_start(self):
         self.fire("claim")
+        self.fire("accept_job")
         self.fire("reached_location")
         response = self.fire("complete_work")
 
         self.assertEqual(response.status_code, 400)
         self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, Booking.Status.ON_SITE)
+        self.assertEqual(self.booking.status, Booking.Status.ARRIVED)
 
     def test_full_walk_reaches_completed_with_a_row_per_stage(self):
         self.fire("claim")
+        self.fire("accept_job")
         self.fire("reached_location")
         self.fire("start_work")
         response = self.fire("complete_work", notes="Replaced the filter.")
@@ -171,12 +206,25 @@ class StaffActionOrderingTests(StaffActionTestCase):
         trail = list(
             BookingStatusHistory.objects.filter(booking=self.booking).order_by("id")
         )
-        self.assertEqual(len(trail), 4)
+        self.assertEqual(len(trail), 5)
         self.assertTrue(all(row.changed_by_id == self.staff.id for row in trail))
         self.assertIn("Replaced the filter.", trail[-1].notes)
 
+        # Every technician milestone carries the exact customer-facing wording
+        # the operations contract fixes, in lifecycle order.
+        self.assertEqual(
+            [row.new_status for row in trail],
+            list(Booking.LIFECYCLE[1:]),
+        )
+        for row in trail:
+            self.assertTrue(
+                row.notes.startswith(Booking.milestone_note(row.new_status)),
+                msg=f"{row.new_status}: {row.notes!r}",
+            )
+
     def test_repeating_a_stage_is_refused_not_silently_accepted(self):
         self.fire("claim")
+        self.fire("accept_job")
         self.fire("reached_location")
         response = self.fire("reached_location")
 
@@ -184,7 +232,7 @@ class StaffActionOrderingTests(StaffActionTestCase):
         # technician an action landed that did nothing.
         self.assertEqual(response.status_code, 400)
         self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, Booking.Status.ON_SITE)
+        self.assertEqual(self.booking.status, Booking.Status.ARRIVED)
 
     def test_unknown_action_is_a_field_error(self):
         response = self.fire("teleport")
@@ -229,11 +277,11 @@ class StaffActionPermissionTests(StaffActionTestCase):
 
     def test_another_technician_cannot_advance_my_job(self):
         self.fire("claim", user=self.staff)
-        response = self.fire("reached_location", user=self.other_staff)
+        response = self.fire("accept_job", user=self.other_staff)
 
         self.assertEqual(response.status_code, 400)
         self.booking.refresh_from_db()
-        self.assertEqual(self.booking.status, Booking.Status.PENDING)
+        self.assertEqual(self.booking.status, Booking.Status.CLAIMED)
 
     def test_a_second_technician_may_claim_an_unclaimed_job(self):
         # Unclaimed is genuinely up for grabs — that is the queue's purpose.

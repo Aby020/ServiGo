@@ -83,7 +83,9 @@ const ACTIVITY_TONE: Record<string, BadgeTone> = {
   completed: "success",
   cancelled: "danger",
   in_progress: "primary",
-  confirmed: "info",
+  arrived: "primary",
+  accepted: "info",
+  claimed: "info",
   pending: "warning",
 };
 

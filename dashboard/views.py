@@ -30,10 +30,7 @@ def customer_dashboard(request):
     upcoming_bookings = Booking.objects.filter(
         customer=user,
         status__in=[
-            Booking.Status.PENDING,
-            Booking.Status.CONFIRMED,
-            Booking.Status.ON_SITE,
-            Booking.Status.IN_PROGRESS,
+            *Booking.OPEN_STATUSES,
         ],
         preferred_date__gte=timezone.now().date()
     ).order_by("preferred_date", "preferred_time")[:5]
@@ -99,12 +96,7 @@ def staff_dashboard(request):
     today = timezone.now().date()
     todays_bookings = Booking.objects.filter(
         preferred_date=today,
-        status__in=[
-            Booking.Status.PENDING,
-            Booking.Status.CONFIRMED,
-            Booking.Status.ON_SITE,
-            Booking.Status.IN_PROGRESS,
-        ]
+        status__in=Booking.OPEN_STATUSES,
     )
 
     # If staff (not admin), filter to assigned or unassigned
@@ -134,7 +126,7 @@ def staff_dashboard(request):
     ).count()
     in_progress_assigned = Booking.objects.filter(
         assigned_staff=user,
-        status__in=[Booking.Status.ON_SITE, Booking.Status.IN_PROGRESS],
+        status__in=[Booking.Status.ARRIVED, Booking.Status.IN_PROGRESS],
     ).count()
 
     # Recent activity
@@ -181,7 +173,9 @@ def admin_dashboard(request):
     # Booking stats
     total_bookings = Booking.objects.count()
     pending_bookings = Booking.objects.filter(status=Booking.Status.PENDING).count()
-    confirmed_bookings = Booking.objects.filter(status=Booking.Status.CONFIRMED).count()
+    claimed_bookings = Booking.objects.filter(
+        status__in=[Booking.Status.CLAIMED, Booking.Status.ACCEPTED]
+    ).count()
     in_progress_bookings = Booking.objects.filter(status=Booking.Status.IN_PROGRESS).count()
     completed_bookings = Booking.objects.filter(status=Booking.Status.COMPLETED).count()
     cancelled_bookings = Booking.objects.filter(status=Booking.Status.CANCELLED).count()

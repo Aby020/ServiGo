@@ -57,8 +57,29 @@ from bookings.models import Booking, BookingStatusHistory
 from ev_charging.models import EVChargingBooking, EVChargingStation
 from feedback.models import Feedback
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.db.models import Count, Sum
+from django.db.models import Count, Prefetch, Sum
 from django.db.models.functions import Coalesce
+
+
+#: The `status_history` prefetch every booking-detail response uses.
+#:
+#: The ordering is spelled out here, on the lookup, rather than left to
+#: `BookingStatusHistory.Meta.ordering`, and the reason is that DRF reads a
+#: reverse related manager — which is ordered by the model default, *not* by
+#: the serializer's `Meta.ordering`. The customer's stepper and the staff audit
+#: feed both present the array as "what happened, in order", so the array has to
+#: actually be in that order: oldest milestone first, `id` breaking the tie when
+#: two rows land inside the same millisecond.
+#:
+#: The `changed_by` sub-prefetch is carried over from the previous form of this
+#: lookup: it keeps the actor of each row from being a query apiece when the
+#: detail page renders the full trail.
+BOOKING_DETAIL_PREFETCH = Prefetch(
+    "status_history",
+    queryset=BookingStatusHistory.objects.select_related("changed_by").order_by(
+        "created_at", "id"
+    ),
+)
 
 
 @extend_schema_view(
@@ -405,7 +426,7 @@ class BookingDetailView(APIView):
 
     def get_object(self, pk, user):
         try:
-            booking = Booking.objects.prefetch_related("status_history__changed_by").get(pk=pk)
+            booking = Booking.objects.prefetch_related(BOOKING_DETAIL_PREFETCH).get(pk=pk)
         except Booking.DoesNotExist:
             return None
         self.check_object_permissions(self.request, booking)
@@ -486,7 +507,7 @@ class BookingCancelView(APIView):
         )
 
         serializer = BookingDetailSerializer(
-            Booking.objects.prefetch_related("status_history__changed_by").get(pk=pk)
+            Booking.objects.prefetch_related(BOOKING_DETAIL_PREFETCH).get(pk=pk)
         )
         return Response(serializer.data)
 
@@ -527,7 +548,7 @@ class StaffBookingListView(APIView):
     def get_queryset(self, user):
         qs = Booking.objects.select_related(
             "customer", "assigned_staff", "feedback"
-        ).prefetch_related("status_history__changed_by")
+        ).prefetch_related(BOOKING_DETAIL_PREFETCH)
 
         status_param = self.request.query_params.get("status")
         if status_param:
@@ -616,6 +637,12 @@ class StaffBookingAssignView(APIView):
     job to a *different* user through this endpoint. Re-claiming a job that
     is already the caller's is a no-op that returns 200 rather than an error,
     so a double-click on the "Claim" button is harmless.
+
+    Claiming is the `claimed` milestone, not a bookkeeping step that precedes
+    one: it moves the booking's status and writes the audit row the customer
+    reads. The alternative — assigning the technician while leaving the status
+    at `pending` — produces a timeline claiming a technician is already on the
+    job, which is not yet true.
     """
 
     permission_classes = [IsAuthenticated, IsStaffUser]
@@ -623,7 +650,7 @@ class StaffBookingAssignView(APIView):
     def get_booking(self, pk):
         try:
             return Booking.objects.prefetch_related(
-                "status_history__changed_by"
+                BOOKING_DETAIL_PREFETCH
             ).get(pk=pk)
         except Booking.DoesNotExist:
             return None
@@ -631,15 +658,22 @@ class StaffBookingAssignView(APIView):
     @extend_schema(
         summary="Claim (assign) a booking for the current staff member",
         description=(
-            "Assigns the booking to the authenticated caller and appends a "
-            "`BookingStatusHistory` entry reading 'Assigned to technician "
-            "<name>'. Claiming a job already assigned to the caller is a "
-            "no-op. A job that is cancelled or completed cannot be claimed."
+            "Assigns the booking to the authenticated caller, moves it to the "
+            "`claimed` milestone, and appends a `BookingStatusHistory` entry "
+            "reading 'Technician assigned' with the technician's name. "
+            "Claiming a job already assigned to the caller is a no-op. A job "
+            "that is cancelled, completed, or already past `pending` cannot be "
+            "claimed."
         ),
         request=StaffBookingAssignSerializer,
         responses={
             200: StaffBookingDetailSerializer,
-            400: OpenApiResponse(description="Booking is cancelled or completed"),
+            400: OpenApiResponse(
+                description=(
+                    "Booking is cancelled, completed, already assigned to "
+                    "another technician, or no longer at `pending`"
+                )
+            ),
             401: OpenApiResponse(description="Not authenticated"),
             403: OpenApiResponse(description="Caller is not service staff"),
             404: OpenApiResponse(description="Booking not found"),
@@ -662,19 +696,54 @@ class StaffBookingAssignView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Idempotent: re-claiming your own job adds no second audit row.
-        if booking.assigned_staff_id == request.user.id:
+        # Someone else already has it. Claiming is a queue entry point, so
+        # unlike the idempotent re-claim below this is a real conflict — the
+        # unassigned queue only ever shows jobs nobody has taken.
+        if (
+            booking.assigned_staff_id is not None
+            and booking.assigned_staff_id != request.user.id
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "This booking is already assigned to another technician."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Idempotent: re-claiming your own job adds no second audit row and,
+        # once the job has moved past `claimed`, does not walk it backwards.
+        if (
+            booking.assigned_staff_id == request.user.id
+            and booking.status == Booking.Status.CLAIMED
+        ):
             return Response(StaffBookingDetailSerializer(booking).data)
 
-        booking.assigned_staff = request.user
-        booking.save(update_fields=["assigned_staff", "updated_at"])
+        if booking.status != Booking.Status.PENDING:
+            return Response(
+                {
+                    "detail": (
+                        f"This booking is {booking.get_status_display().lower()} "
+                        "and can no longer be claimed."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
+        booking.assigned_staff = request.user
+        booking.status = Booking.Status.CLAIMED
+        booking.save(update_fields=["assigned_staff", "status", "updated_at"])
+
+        # The milestone wording is fixed by the dispatch contract; the
+        # technician's name is appended so the customer can see who is coming.
         BookingStatusHistory.objects.create(
             booking=booking,
-            previous_status=booking.status,
-            new_status=booking.status,
+            previous_status=Booking.Status.PENDING,
+            new_status=Booking.Status.CLAIMED,
             changed_by=request.user,
-            notes=f"Assigned to technician {_staff_name(request.user)}",
+            notes=f"{Booking.milestone_note(Booking.Status.CLAIMED)} — "
+            f"Assigned to technician {_staff_name(request.user)}",
         )
 
         booking.refresh_from_db()
@@ -697,7 +766,7 @@ class StaffBookingStatusView(APIView):
     def get_booking(self, pk):
         try:
             return Booking.objects.prefetch_related(
-                "status_history__changed_by"
+                BOOKING_DETAIL_PREFETCH
             ).get(pk=pk)
         except Booking.DoesNotExist:
             return None
@@ -705,17 +774,26 @@ class StaffBookingStatusView(APIView):
     @extend_schema(
         summary="Update the status of a booking",
         description=(
-            "Moves a booking into `status`, optionally recording `notes` that "
-            "the customer sees on their booking timeline. Refused when the "
-            "booking is already cancelled or completed, when the status is "
-            "unchanged, or when the booking is assigned to another "
-            "technician. Appends a `BookingStatusHistory` row carrying the "
-            "previous status, the new status, the acting user and the notes."
+            "Moves a booking exactly one stage along "
+            "`pending → claimed → accepted → arrived → in_progress → "
+            "completed`, optionally recording `notes` that the caller adds to "
+            "the stage's fixed description on the customer's booking "
+            "timeline. Refused when the booking is already cancelled or "
+            "completed, when the status is unchanged, when the target is not "
+            "the immediately following stage, or when the booking is assigned "
+            "to another technician. Appends a `BookingStatusHistory` row "
+            "carrying the previous status, the new status, the acting user and "
+            "the notes."
         ),
         request=StaffBookingStatusSerializer,
         responses={
             200: StaffBookingDetailSerializer,
-            400: OpenApiResponse(description="Illegal status transition"),
+            400: OpenApiResponse(
+                description=(
+                    "Illegal status transition — out of order, already "
+                    "passed, terminal, or the caller does not own the job"
+                )
+            ),
             401: OpenApiResponse(description="Not authenticated"),
             403: OpenApiResponse(description="Caller is not service staff"),
             404: OpenApiResponse(description="Booking not found"),
@@ -741,19 +819,27 @@ class StaffBookingStatusView(APIView):
         if new_status == Booking.Status.COMPLETED and booking.completed_at is None:
             booking.completed_at = timezone.now()
             update_fields.append("completed_at")
-        if new_status == Booking.Status.CONFIRMED and booking.confirmed_at is None:
+        # `confirmed_at` is the first moment a claimed job is demonstrably
+        # real — a claim proves only intent, so arrival is what stamps it. The
+        # column predates the milestone split and keeps its name; renaming it
+        # would touch the migration history for no gain in meaning.
+        if new_status == Booking.Status.ARRIVED and booking.confirmed_at is None:
             booking.confirmed_at = timezone.now()
             update_fields.append("confirmed_at")
 
         booking.save(update_fields=update_fields)
 
-        notes = (serializer.validated_data.get("notes") or "").strip()
+        # The stage wording is fixed by the dispatch contract; a caller's note
+        # is appended to it rather than replacing it, so the audit row always
+        # says which milestone was recorded.
+        stage_note = Booking.milestone_note(new_status)
+        caller_note = (serializer.validated_data.get("notes") or "").strip()
         BookingStatusHistory.objects.create(
             booking=booking,
             previous_status=previous_status,
             new_status=new_status,
             changed_by=request.user,
-            notes=notes,
+            notes=f"{stage_note} — {caller_note}" if caller_note else stage_note,
         )
 
         booking.refresh_from_db()
@@ -764,16 +850,20 @@ class StaffBookingActionView(APIView):
     """
     POST /api/staff/bookings/<id>/actions/ — record a dispatch milestone.
 
-    The four explicit stages, in order:
+    The five technician-driven stages, in order:
 
-      1. ``claim``            — take an unassigned job (writes no status)
-      2. ``reached_location`` — technician has arrived (→ ``on_site``)
-      3. ``start_work``       — work begins (→ ``in_progress``)
-      4. ``complete_work``    — job closed (→ ``completed``)
+      1. ``claim``            — take an unassigned job (→ ``claimed``)
+      2. ``accept_job``       — dispatch confirmed (→ ``accepted``)
+      3. ``reached_location`` — technician has arrived (→ ``arrived``)
+      4. ``start_work``       — work begins (→ ``in_progress``)
+      5. ``complete_work``    — job closed (→ ``completed``)
+
+    The sixth milestone, `pending`, is the customer creating the booking and
+    has no action here — it is the state the queue starts in.
 
     This is the endpoint the dispatch dashboard drives. `/assign/` and
     `/status/` stay mounted because they are the documented contract the
-    existing clients and tests use; the ordering rules for the four stages
+    existing clients and tests use; the ordering rules for the five stages
     live in ``StaffBookingActionSerializer`` so they are enforced identically
     however the request arrives. This view owns only the side effects: the
     ``confirmed_at`` / ``completed_at`` stamps and the audit row.
@@ -784,7 +874,7 @@ class StaffBookingActionView(APIView):
     def get_booking(self, pk):
         try:
             return Booking.objects.prefetch_related(
-                "status_history__changed_by"
+                BOOKING_DETAIL_PREFETCH
             ).get(pk=pk)
         except Booking.DoesNotExist:
             return None
@@ -792,14 +882,16 @@ class StaffBookingActionView(APIView):
     @extend_schema(
         summary="Record a dispatch milestone for a booking",
         description=(
-            "Advances a booking through one of four named stages. "
-            "`claim` assigns the booking to the caller and leaves its status "
-            "untouched; it is a no-op when the caller already holds the job. "
-            "`reached_location`, `start_work` and `complete_work` each require "
-            "the caller to be the assigned technician and the booking to be at "
-            "the immediately preceding stage — recording a stage twice, or "
-            "out of order, is a 400 rather than a silent success. Every action "
-            "appends a `BookingStatusHistory` row."
+            "Advances a booking through one of five named stages. `claim` "
+            "assigns the booking to the caller and moves it to `claimed`; it "
+            "is a no-op when the caller already holds the job at that stage. "
+            "`accept_job`, `reached_location`, `start_work` and "
+            "`complete_work` each require the caller to be the assigned "
+            "technician and the booking to be at the immediately preceding "
+            "stage — recording a stage twice, or out of order, is a 400 rather "
+            "than a silent success. Every action appends a "
+            "`BookingStatusHistory` row carrying the stage's fixed "
+            "customer-facing description."
         ),
         request=StaffBookingActionSerializer,
         responses={
@@ -830,22 +922,13 @@ class StaffBookingActionView(APIView):
         action = serializer.validated_data["action"]
         note = (serializer.validated_data.get("notes") or "").strip()
 
-        # `claim` writes assignment only. Reusing StaffBookingAssignView's rules
-        # rather than restating them keeps the two claim paths from drifting.
+        # `claim` also writes the assignment. Delegating by calling the sibling
+        # view's `post` — rather than re-issuing a `dispatch` on a fresh
+        # instance — is what keeps the two claim paths from drifting: `dispatch`
+        # would run through `initial()` and re-wrap the already-DRF-parsed
+        # request in a second `rest_framework.request.Request`, which raises.
         if action == "claim":
-            if booking.assigned_staff_id == request.user.id:
-                return Response(StaffBookingDetailSerializer(booking).data)
-            booking.assigned_staff = request.user
-            booking.save(update_fields=["assigned_staff", "updated_at"])
-            BookingStatusHistory.objects.create(
-                booking=booking,
-                previous_status=booking.status,
-                new_status=booking.status,
-                changed_by=request.user,
-                notes=f"Assigned to technician {_staff_name(request.user)}",
-            )
-            booking.refresh_from_db()
-            return Response(StaffBookingDetailSerializer(booking).data)
+            return StaffBookingAssignView.as_view()(request._request, pk=pk)
 
         previous_status = booking.status
         new_status = StaffBookingActionSerializer.RESULT_STATUS[action]
@@ -858,7 +941,7 @@ class StaffBookingActionView(APIView):
         # Arrival is the first moment a claimed job is demonstrably real — the
         # claim itself proves nothing, since it only records intent. Stamping
         # here keeps `confirmed_at` meaningful on the claim-only path too.
-        if action == "reached_location" and booking.confirmed_at is None:
+        if new_status == Booking.Status.ARRIVED and booking.confirmed_at is None:
             booking.confirmed_at = timezone.now()
             update_fields.append("confirmed_at")
 
@@ -867,11 +950,7 @@ class StaffBookingActionView(APIView):
         # The stage wording is fixed by the dispatch contract; a caller's note
         # is appended to it rather than replacing it, so the audit row always
         # says which milestone was recorded.
-        stage_note = {
-            "reached_location": "Technician arrived at location",
-            "start_work": "Work started",
-            "complete_work": "Work completed",
-        }[action]
+        stage_note = Booking.milestone_note(new_status)
         BookingStatusHistory.objects.create(
             booking=booking,
             previous_status=previous_status,
@@ -1540,16 +1619,13 @@ class AdminMetricsView(APIView):
 
     def get(self, request):
         completed = Booking.Status.COMPLETED
-        # Statuses that still represent work to be done. `cancelled` is
-        # excluded: a cancelled booking is finished being, not work in
-        # hand, and counting it as "active" would inflate the dispatch
-        # queue an operator is trying to reason about.
-        open_statuses = [
-            Booking.Status.PENDING,
-            Booking.Status.CONFIRMED,
-            Booking.Status.ON_SITE,
-            Booking.Status.IN_PROGRESS,
-        ]
+        # Statuses that still represent work to be done — every milestone on the
+        # lifecycle up to but not including `completed`. `cancelled` is excluded:
+        # a cancelled booking is finished being, not work in hand, and counting
+        # it as "active" would inflate the dispatch queue an operator is trying
+        # to reason about. Read off the model so this cannot fall behind the
+        # lifecycle if a stage is added.
+        open_statuses = list(Booking.OPEN_STATUSES)
 
         # Coalesce turns the aggregate's NULL (an empty table sums to NULL)
         # into a real 0. Without it a brand-new platform reports "revenue:

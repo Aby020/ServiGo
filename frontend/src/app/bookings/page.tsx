@@ -59,7 +59,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * The five statuses, in lifecycle order.
+ * The seven statuses, in lifecycle order.
  *
  * "All" is prepended rather than being the absence of a filter, so the control
  * always has a selected state the user can see and change.
@@ -67,8 +67,9 @@ import { cn } from "@/lib/utils";
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "pending", label: "Pending" },
-  { key: "confirmed", label: "Confirmed" },
-  { key: "on_site", label: "On site" },
+  { key: "claimed", label: "Claimed" },
+  { key: "accepted", label: "Accepted" },
+  { key: "arrived", label: "Arrived" },
   { key: "in_progress", label: "In progress" },
   { key: "completed", label: "Completed" },
   { key: "cancelled", label: "Cancelled" },
