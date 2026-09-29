@@ -48,6 +48,7 @@ import {
 import { DashboardShell } from "@/components/DashboardShell";
 import { AddStaffModal } from "@/components/admin/AddStaffModal";
 import { StaffTable } from "@/components/admin/StaffTable";
+import { StarRatingReadonly } from "@/components/FeedbackModal";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -56,12 +57,14 @@ import { cn } from "@/lib/utils";
 import { toFieldErrors } from "@/lib/admin-errors";
 import {
   createStaffMember,
+  fetchAdminFeedback,
   fetchAdminMetrics,
   fetchAdminStaff,
   type AdminActivity,
   type AdminMetrics,
   type AdminStaff,
   type CreateStaffPayload,
+  type Feedback,
   type UserProfile,
 } from "@/lib/api";
 import { getValidAccessToken } from "@/lib/auth";
@@ -121,8 +124,127 @@ function buildKpis(metrics: AdminMetrics | undefined): Kpi[] {
   ];
 }
 
-/* ── Activity feed ──────────────────────────────────────────────────────────── */
+/* ── Customer reviews ───────────────────────────────────────────────────────── */
 
+/**
+ * The average rating across every review, or `null` when there are none.
+ *
+ * Computed client-side from the list rather than asked of the server: the
+ * reviews endpoint is a bare array with no aggregate, and adding a second
+ * round trip for one number the client is already holding would be a request
+ * that exists only to avoid arithmetic. `null` rather than `0` is the same
+ * "unverified zero" rule the KPIs follow — an average of zero stars and no
+ * reviews at all must not render the same.
+ */
+function averageRating(reviews: Feedback[]): number | null {
+  if (reviews.length === 0) return null;
+  const total = reviews.reduce((sum, r) => sum + r.rating, 0);
+  return Math.round((total / reviews.length) * 10) / 10;
+}
+
+function FeedbackRow({ review }: { review: Feedback }) {
+  return (
+    <li className="rounded-md border border-line bg-surface-2/40 px-4 py-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <StarRatingReadonly value={review.rating} />
+          <span className="truncate text-sm font-semibold text-ink">
+            {review.service_name}
+          </span>
+        </div>
+        <span className="shrink-0 text-xs text-muted">
+          {formatTimestamp(review.created_at)}
+        </span>
+      </div>
+      {review.comment ? (
+        <p className="mt-2 text-sm leading-relaxed text-text-soft">
+          {review.comment}
+        </p>
+      ) : (
+        <p className="mt-2 text-sm italic text-muted">No comment left.</p>
+      )}
+      <p className="mt-2 text-xs text-muted">
+        {review.customer_name} · {review.customer_email} · Booking #
+        {review.booking_id}
+      </p>
+    </li>
+  );
+}
+
+function FeedbackList({
+  reviews,
+  isLoading,
+  isError,
+  errorMessage,
+  onRetry,
+}: {
+  reviews: Feedback[];
+  isLoading: boolean;
+  isError: boolean;
+  errorMessage: string;
+  onRetry: () => void;
+}) {
+  const average = averageRating(reviews);
+
+  if (isLoading) {
+    return (
+      <div
+        role="status"
+        aria-label="Loading customer reviews"
+        className="flex flex-col gap-3"
+      >
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-20 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center gap-3 rounded-md border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger"
+      >
+        <AlertCircle size={16} className="shrink-0" aria-hidden="true" />
+        <span className="flex-1">{errorMessage}</span>
+        <Button size="sm" variant="secondary" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  if (reviews.length === 0) {
+    return (
+      <p className="text-sm text-muted">
+        No reviews yet. They will appear here once customers rate a completed
+        job.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-primary-soft px-4 py-3">
+        <StarRatingReadonly value={Math.round(average ?? 0)} />
+        <span className="text-sm font-semibold text-ink">
+          {average?.toFixed(1)} average
+        </span>
+        <span className="text-xs text-muted">
+          from {reviews.length} {reviews.length === 1 ? "review" : "reviews"}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-3">
+        {reviews.map((review) => (
+          <FeedbackRow key={review.id} review={review} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ── Activity feed ──────────────────────────────────────────────────────────── */
 function ActivityRow({ entry }: { entry: AdminActivity }) {
   const from = entry.previous_status ? entry.previous_status.replace(/_/g, " ") : null;
   const to = entry.new_status.replace(/_/g, " ");
@@ -183,6 +305,28 @@ function AdminCommandCenter({ user }: { user: UserProfile }) {
     retry: false,
   });
 
+  /**
+   * Reviews are fetched only while the Reviews tab is open, for the same
+   * reason the staff dashboard's tab queries are: nothing on the Overview tab
+   * reads them, and an operator who never opens the tab should not pay for the
+   * request. The tab is part of the component rather than a route so the KPI
+   * row and the roster above it stay mounted — switching tabs should not throw
+   * away a metrics fetch the user already paid for.
+   */
+  const [view, setView] = useState<"overview" | "reviews">("overview");
+
+  const feedbackQuery = useQuery<Feedback[], Error>({
+    queryKey: ["admin", "feedback"],
+    enabled: view === "reviews",
+    queryFn: async () => {
+      const token = await getValidAccessToken();
+      if (!token) throw new Error("unauthenticated");
+      return fetchAdminFeedback(token);
+    },
+    staleTime: 30_000,
+    retry: false,
+  });
+
   const metrics = metricsQuery.data;
   const staff = staffQuery.data;
   const kpis = buildKpis(metrics);
@@ -222,6 +366,57 @@ function AdminCommandCenter({ user }: { user: UserProfile }) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* View tabs */}
+      <div
+        role="tablist"
+        aria-label="Admin views"
+        className="flex w-fit gap-1 rounded-lg border border-line bg-surface p-1"
+      >
+        {([
+          { id: "overview", label: "Overview" },
+          { id: "reviews", label: "Customer Reviews" },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            type="button"
+            aria-selected={view === t.id}
+            onClick={() => setView(t.id)}
+            className={cn(
+              "rounded-md px-4 py-2 text-sm font-medium transition-colors duration-base ease-out",
+              view === t.id
+                ? "bg-primary-soft text-primary"
+                : "text-text-soft hover:bg-surface-3",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {view === "reviews" ? (
+        <Card className="p-5">
+          <h2 className="font-display text-base font-bold text-ink">
+            Customer reviews
+          </h2>
+          <p className="mt-0.5 text-xs text-muted">
+            Ratings left by customers on completed jobs, newest first.
+          </p>
+          <div className="mt-4">
+            <FeedbackList
+              reviews={feedbackQuery.data ?? []}
+              isLoading={feedbackQuery.isLoading}
+              isError={feedbackQuery.isError}
+              errorMessage={
+                feedbackQuery.error?.message ??
+                "The reviews could not be loaded."
+              }
+              onRetry={() => feedbackQuery.refetch()}
+            />
+          </div>
+        </Card>
+      ) : (
+        <>
       {/* KPI row */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map(({ label, value, icon: Icon, tone }) => (
@@ -404,6 +599,8 @@ function AdminCommandCenter({ user }: { user: UserProfile }) {
           </Card>
         </div>
       </div>
+        </>
+      )}
 
       {modalOpen && (
         <AddStaffModal

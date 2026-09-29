@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "services",
     "bookings",
     "ev_charging",
+    "feedback",
     "dashboard",
     "core",
     "api",

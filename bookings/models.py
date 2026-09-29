@@ -15,6 +15,11 @@ class Booking(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", _("Pending")
         CONFIRMED = "confirmed", _("Confirmed")
+        # Declared between CONFIRMED and IN_PROGRESS deliberately: the member
+        # order is the dispatch order, and every consumer that walks the
+        # lifecycle (the customer timeline, the admin filters, the badge map)
+        # reads these in sequence.
+        ON_SITE = "on_site", _("Technician on site")
         IN_PROGRESS = "in_progress", _("In Progress")
         COMPLETED = "completed", _("Completed")
         CANCELLED = "cancelled", _("Cancelled")
@@ -81,6 +86,7 @@ class Booking(models.Model):
         badge_map = {
             self.Status.PENDING: "warning",
             self.Status.CONFIRMED: "info",
+            self.Status.ON_SITE: "dark",
             self.Status.IN_PROGRESS: "primary",
             self.Status.COMPLETED: "success",
             self.Status.CANCELLED: "danger",

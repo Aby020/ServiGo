@@ -14,6 +14,7 @@ import type { BookingStatus, EvBookingStatus } from "./api";
 export const BOOKING_STATUSES: BookingStatus[] = [
   "pending",
   "confirmed",
+  "on_site",
   "in_progress",
   "completed",
   "cancelled",
@@ -27,6 +28,7 @@ export const BOOKING_TIMELINE: {
 }[] = [
   { status: "pending", label: "Requested", blurb: "We have your request" },
   { status: "confirmed", label: "Confirmed", blurb: "A technician is assigned" },
+  { status: "on_site", label: "On site", blurb: "Your technician has arrived" },
   { status: "in_progress", label: "In progress", blurb: "Work is underway" },
   { status: "completed", label: "Completed", blurb: "Job finished and closed" },
 ];
@@ -34,6 +36,7 @@ export const BOOKING_TIMELINE: {
 export const STATUS_TONE: Record<BookingStatus, BadgeTone> = {
   pending: "warning",
   confirmed: "info",
+  on_site: "primary",
   in_progress: "primary",
   completed: "success",
   cancelled: "danger",
@@ -42,6 +45,7 @@ export const STATUS_TONE: Record<BookingStatus, BadgeTone> = {
 export const STATUS_LABEL: Record<BookingStatus, string> = {
   pending: "Pending",
   confirmed: "Confirmed",
+  on_site: "On site",
   in_progress: "In progress",
   completed: "Completed",
   cancelled: "Cancelled",
@@ -156,6 +160,41 @@ export function formatBookingTime(value: string): string {
   const suffix = hour >= 12 ? "PM" : "AM";
   const twelve = hour % 12 === 0 ? 12 : hour % 12;
   return `${twelve}:${m} ${suffix}`;
+}
+
+/**
+ * A slot label for the EV bay picker, from either shape the slot can arrive in.
+ *
+ * The grid publishes wall-clock `"HH:MM:SS"` (`api.serializers.build_slot_grid`),
+ * but a slot that has already been chosen exists only as a full ISO instant —
+ * the `start_at` the confirmation screen reads back. Both have to render through
+ * the same label, so this accepts both.
+ *
+ * The ISO branch is not an optimisation, it is a bug fix: the picker used to
+ * call `.slice(0, 5)` on its `"HH:MM:SS"` assumption, which on an instant
+ * yields the year — `"2026-09-29T09:30:00.000Z".slice(0, 5)` is `"2026-"` — so
+ * every already-selected and every just-booked slot rendered the same four
+ * useless characters. Reading the clock off the parsed `Date` is the only way
+ * that does not happen.
+ *
+ * Total on purpose: no argument is optional and nothing here throws. A
+ * malformed value falls back to `—`, because a picker that blanks the whole
+ * modal on one bad chip is worse than one that shows a dash.
+ */
+export function formatSlotTime(value: string | null | undefined): string {
+  if (!value) return "—";
+
+  // "HH:MM:SS" — the grid's own precision. Kept on the pure-time path because
+  // the grid spans two calendar days, so converting it to a `Date` would
+  // resolve it against 1970-01-01 and drift with the machine's timezone.
+  const wallClock = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(value.trim());
+  if (wallClock) return formatBookingTime(value.trim());
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return formatBookingTime(
+    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+  );
 }
 
 export function formatTimestamp(iso: string): string {

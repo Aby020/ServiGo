@@ -3,13 +3,6 @@ Views for the ServiGo REST API.
 """
 import decimal
 
-from rest_framework import status, filters
-from rest_framework.exceptions import ValidationError
-from rest_framework.generics import ListAPIView, RetrieveAPIView
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework.pagination import PageNumberPagination
 from django.db.models import F, Q, Value
 from django.db.models.functions import Least
 from django.utils import timezone
@@ -19,6 +12,13 @@ from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
 )
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
+from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .serializers import (
     AuthSuccessSerializer,
@@ -37,14 +37,16 @@ from .serializers import (
     StaffBookingDetailSerializer,
     StaffBookingAssignSerializer,
     StaffBookingStatusSerializer,
+    StaffBookingActionSerializer,
     EVBookingCreateSerializer,
     EVBookingSerializer,
     EVStationDetailSerializer,
     EVStationSerializer,
-    AdminActivitySerializer,
     AdminMetricsSerializer,
     AdminStaffCreateSerializer,
     AdminStaffSerializer,
+    FeedbackCreateSerializer,
+    FeedbackSerializer,
     EV_BREAKDOWN_LABEL,
     SLOT_DURATION_MINUTES,
 )
@@ -53,6 +55,7 @@ from accounts.models import User
 from services.models import Service, ServiceCategory
 from bookings.models import Booking, BookingStatusHistory
 from ev_charging.models import EVChargingBooking, EVChargingStation
+from feedback.models import Feedback
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce
@@ -356,10 +359,17 @@ class BookingListCreateView(APIView):
     def get(self, request):
         user = request.user
         is_staff_or_admin = _is_privileged(user)
+        # `feedback` is select_related on both branches because the list
+        # serializer now renders it: without it every row in a 20-item page
+        # costs an extra query to find a review that is usually absent.
         if is_staff_or_admin:
-            qs = Booking.objects.select_related("customer", "assigned_staff").order_by("-created_at")
+            qs = Booking.objects.select_related(
+                "customer", "assigned_staff", "feedback"
+            ).order_by("-created_at")
         else:
-            qs = Booking.objects.filter(customer=user).select_related("assigned_staff").order_by("-created_at")
+            qs = Booking.objects.filter(customer=user).select_related(
+                "assigned_staff", "feedback"
+            ).order_by("-created_at")
 
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(qs, request)
@@ -516,7 +526,7 @@ class StaffBookingListView(APIView):
 
     def get_queryset(self, user):
         qs = Booking.objects.select_related(
-            "customer", "assigned_staff"
+            "customer", "assigned_staff", "feedback"
         ).prefetch_related("status_history__changed_by")
 
         status_param = self.request.query_params.get("status")
@@ -567,7 +577,7 @@ class StaffBookingListView(APIView):
                 str,
                 description=(
                     "Comma-separated status filter. One or more of: "
-                    "pending, confirmed, in_progress, completed, cancelled."
+                    f"{', '.join(v for v, _ in Booking.Status.choices)}."
                 ),
             ),
             OpenApiParameter(
@@ -744,6 +754,130 @@ class StaffBookingStatusView(APIView):
             new_status=new_status,
             changed_by=request.user,
             notes=notes,
+        )
+
+        booking.refresh_from_db()
+        return Response(StaffBookingDetailSerializer(booking).data)
+
+
+class StaffBookingActionView(APIView):
+    """
+    POST /api/staff/bookings/<id>/actions/ — record a dispatch milestone.
+
+    The four explicit stages, in order:
+
+      1. ``claim``            — take an unassigned job (writes no status)
+      2. ``reached_location`` — technician has arrived (→ ``on_site``)
+      3. ``start_work``       — work begins (→ ``in_progress``)
+      4. ``complete_work``    — job closed (→ ``completed``)
+
+    This is the endpoint the dispatch dashboard drives. `/assign/` and
+    `/status/` stay mounted because they are the documented contract the
+    existing clients and tests use; the ordering rules for the four stages
+    live in ``StaffBookingActionSerializer`` so they are enforced identically
+    however the request arrives. This view owns only the side effects: the
+    ``confirmed_at`` / ``completed_at`` stamps and the audit row.
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    def get_booking(self, pk):
+        try:
+            return Booking.objects.prefetch_related(
+                "status_history__changed_by"
+            ).get(pk=pk)
+        except Booking.DoesNotExist:
+            return None
+
+    @extend_schema(
+        summary="Record a dispatch milestone for a booking",
+        description=(
+            "Advances a booking through one of four named stages. "
+            "`claim` assigns the booking to the caller and leaves its status "
+            "untouched; it is a no-op when the caller already holds the job. "
+            "`reached_location`, `start_work` and `complete_work` each require "
+            "the caller to be the assigned technician and the booking to be at "
+            "the immediately preceding stage — recording a stage twice, or "
+            "out of order, is a 400 rather than a silent success. Every action "
+            "appends a `BookingStatusHistory` row."
+        ),
+        request=StaffBookingActionSerializer,
+        responses={
+            200: StaffBookingDetailSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "Out-of-order stage, stage already passed, or the booking "
+                    "is assigned to another technician"
+                )
+            ),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not service staff"),
+            404: OpenApiResponse(description="Booking not found"),
+        },
+        tags=["Staff"],
+    )
+    def post(self, request, pk):
+        booking = self.get_booking(pk)
+        if booking is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StaffBookingActionSerializer(
+            data=request.data,
+            context={"booking": booking, "actor": request.user},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        action = serializer.validated_data["action"]
+        note = (serializer.validated_data.get("notes") or "").strip()
+
+        # `claim` writes assignment only. Reusing StaffBookingAssignView's rules
+        # rather than restating them keeps the two claim paths from drifting.
+        if action == "claim":
+            if booking.assigned_staff_id == request.user.id:
+                return Response(StaffBookingDetailSerializer(booking).data)
+            booking.assigned_staff = request.user
+            booking.save(update_fields=["assigned_staff", "updated_at"])
+            BookingStatusHistory.objects.create(
+                booking=booking,
+                previous_status=booking.status,
+                new_status=booking.status,
+                changed_by=request.user,
+                notes=f"Assigned to technician {_staff_name(request.user)}",
+            )
+            booking.refresh_from_db()
+            return Response(StaffBookingDetailSerializer(booking).data)
+
+        previous_status = booking.status
+        new_status = StaffBookingActionSerializer.RESULT_STATUS[action]
+        booking.status = new_status
+
+        update_fields = ["status", "updated_at"]
+        if new_status == Booking.Status.COMPLETED and booking.completed_at is None:
+            booking.completed_at = timezone.now()
+            update_fields.append("completed_at")
+        # Arrival is the first moment a claimed job is demonstrably real — the
+        # claim itself proves nothing, since it only records intent. Stamping
+        # here keeps `confirmed_at` meaningful on the claim-only path too.
+        if action == "reached_location" and booking.confirmed_at is None:
+            booking.confirmed_at = timezone.now()
+            update_fields.append("confirmed_at")
+
+        booking.save(update_fields=update_fields)
+
+        # The stage wording is fixed by the dispatch contract; a caller's note
+        # is appended to it rather than replacing it, so the audit row always
+        # says which milestone was recorded.
+        stage_note = {
+            "reached_location": "Technician arrived at location",
+            "start_work": "Work started",
+            "complete_work": "Work completed",
+        }[action]
+        BookingStatusHistory.objects.create(
+            booking=booking,
+            previous_status=previous_status,
+            new_status=new_status,
+            changed_by=request.user,
+            notes=f"{stage_note} — {note}" if note else stage_note,
         )
 
         booking.refresh_from_db()
@@ -1175,6 +1309,95 @@ class EVBookingCancelView(APIView):
         return Response(EVBookingSerializer(booking).data)
 
 
+class FeedbackCreateView(APIView):
+    """
+    POST /api/feedback/ — submit a rating and comment on a completed booking.
+
+    Only the customer who owns the booking may review it, and only after the
+    job is actually done. The idempotency rule is “you may review a booking
+    exactly once”: a second POST with the same id is a 400 rather than silently
+    overwriting the first review.
+    """
+
+    permission_classes = [IsAuthenticated, IsCustomer]
+
+    @extend_schema(
+        summary="Submit a customer review",
+        description=(
+            "Accepts `booking_id`, `rating` (1–5) and an optional `comment`. "
+            "The booking must exist, belong to the caller, and be `completed`. "
+            "A booking may be reviewed exactly once; a duplicate submission is "
+            "a 400 rather than a silent overwrite.\n\n"
+            "A booking id that does not exist, or that belongs to another "
+            "customer, both answer 404 with the same body — a 403 would "
+            "confirm the id is real and make this an enumeration oracle."
+        ),
+        request=FeedbackCreateSerializer,
+        responses={
+            201: FeedbackSerializer,
+            400: OpenApiResponse(
+                description="Validation error — rating out of range, booking "
+                "not completed, or already reviewed"
+            ),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not a customer"),
+            404: OpenApiResponse(
+                description="No such booking, or it belongs to another customer"
+            ),
+        },
+        tags=["Feedback"],
+    )
+    def post(self, request):
+        serializer = FeedbackCreateSerializer(
+            data=request.data, context={"actor": request.user}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        review = serializer.save()
+
+        # No `Location` header: the review is readable back through the
+        # booking it belongs to (`/api/bookings/<id>/` carries it), and there
+        # is no `/api/feedback/<id>/` route to point at. Emitting a header for
+        # a URL that 404s is worse than emitting none.
+        return Response(
+            FeedbackSerializer(review).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminFeedbackListView(ListAPIView):
+    """
+    GET /api/admin/feedback/ — read-only list of all reviews.
+
+    Admin-only. The newest reviews come first so the operator sees the
+    freshest signal. No pagination is provided because the number of reviews is
+    bounded by completed jobs — a platform that has to paginate its feedback is
+    either very young or very broken.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    serializer_class = FeedbackSerializer
+
+    @extend_schema(
+        summary="List all customer reviews",
+        description=(
+            "Returns every review, newest first. Intended for the admin "
+            "dashboard’s ‘Customer Reviews’ tab. No pagination; the list length "
+            "is the number of completed bookings."
+        ),
+        responses={
+            200: FeedbackSerializer(many=True),
+            401: OpenApiResponse(description="Not authenticated"),
+            403: OpenApiResponse(description="Caller is not an administrator"),
+        },
+        tags=["Admin"],
+    )
+    def get_queryset(self):
+        return Feedback.objects.select_related(
+            "customer", "booking"
+        ).order_by("-created_at")
+
+
 # ── Admin command hub ──────────────────────────────────────────────────────────
 
 
@@ -1324,6 +1547,7 @@ class AdminMetricsView(APIView):
         open_statuses = [
             Booking.Status.PENDING,
             Booking.Status.CONFIRMED,
+            Booking.Status.ON_SITE,
             Booking.Status.IN_PROGRESS,
         ]
 

@@ -10,7 +10,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import F
 from django.utils import timezone
-from rest_framework import serializers
+from rest_framework import exceptions, serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema_field
 
@@ -18,6 +18,7 @@ from accounts.models import CustomerProfile, StaffProfile, User
 from services.models import Service, ServiceCategory
 from bookings.models import Booking, BookingStatusHistory
 from ev_charging.models import EVChargingBooking, EVChargingStation
+from feedback.models import Feedback
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -429,6 +430,13 @@ class BookingSerializer(serializers.ModelSerializer):
 
     status_display = serializers.CharField(source="get_status_display", read_only=True)
 
+    # The caller's own review, or null. Carried on the booking because both the
+    # detail page and the customer's list need it to decide between offering a
+    # review form and rendering the review that already exists — without it the
+    # UI would happily show a "Rate this service" button for a booking the
+    # server will then reject with a uniqueness error.
+    feedback = serializers.SerializerMethodField()
+
     class Meta:
         model = Booking
         fields = [
@@ -444,7 +452,28 @@ class BookingSerializer(serializers.ModelSerializer):
             "status_display",
             "created_at",
             "updated_at",
+            "feedback",
         ]
+
+    @extend_schema_field(
+        serializers.DictField(
+            child=serializers.JSONField(),
+            allow_null=True,
+            help_text="The caller's own review of this booking, or null.",
+        )
+    )
+    def get_feedback(self, obj):
+        # `getattr` rather than `obj.feedback` because this serializer is also
+        # used on querysets that were never prefetched, and an un-prefetched
+        # reverse one-to-one raises DoesNotExist rather than returning None.
+        review = getattr(obj, "feedback", None)
+        if review is None:
+            return None
+        return {
+            "rating": review.rating,
+            "comment": review.comment,
+            "created_at": review.created_at,
+        }
         read_only_fields = [
             "id",
             "service_name",
@@ -581,6 +610,223 @@ class StaffBookingStatusSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+class StaffBookingActionSerializer(serializers.Serializer):
+    """
+    Validates one of the four explicit dispatch milestones.
+
+    The dispatch desk advances a job through four named stages rather than by
+    posting an arbitrary status. Naming them is the point: `start_work` cannot
+    mean anything other than "work began", so a client that posts a status
+    directly has no way to skip arrival, and a double-click on an already-passed
+    stage is a visible 400 instead of a silent no-op that looks like success.
+
+    Two layers of guard, mirroring :class:`StaffBookingStatusSerializer`:
+
+      * ``validate_action`` rejects a name outside the four. Field validation —
+        a 400 with a field key.
+      * ``validate`` rejects a stage the booking can't legally be at right now
+        (wrong order, wrong owner, terminal). Business rule — a 400 with a
+        single ``detail`` key.
+    """
+
+    #: The stage order *is* the allowed order. `claim` is exempt from the
+    #: ordering check because it is the entry point rather than a step through
+    #: the lifecycle.
+    ACTION_ORDER = ("claim", "reached_location", "start_work", "complete_work")
+
+    #: Statuses from which the job may be claimed. Claiming is the only stage
+    #: with no required predecessor.
+    CLAIMABLE_STATUSES = {Booking.Status.PENDING, Booking.Status.CONFIRMED}
+
+    #: Statuses that close a job. Nothing reopens one.
+    TERMINAL_STATUSES = {Booking.Status.COMPLETED, Booking.Status.CANCELLED}
+
+    #: Status each stage may be fired from, keyed by action. `claim` is absent
+    #: for the reason given on `ACTION_ORDER`.
+    REQUIRED_STATUS = {
+        "reached_location": {Booking.Status.PENDING, Booking.Status.CONFIRMED},
+        "start_work": {Booking.Status.ON_SITE},
+        "complete_work": {Booking.Status.IN_PROGRESS},
+    }
+
+    #: The status each stage moves the job into. `claim` writes no status.
+    RESULT_STATUS = {
+        "reached_location": Booking.Status.ON_SITE,
+        "start_work": Booking.Status.IN_PROGRESS,
+        "complete_work": Booking.Status.COMPLETED,
+    }
+
+    action = serializers.ChoiceField(
+        choices=ACTION_ORDER,
+        help_text=(
+            "Which milestone to record: `claim` takes an unassigned job, "
+            "`reached_location` records arrival on site, `start_work` begins "
+            "the job, `complete_work` closes it."
+        ),
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text=(
+            "Optional note recorded against the transition and shown to the "
+            "customer on their booking timeline."
+        ),
+    )
+
+    def validate(self, attrs):
+        booking = self.context["booking"]
+        actor = self.context["actor"]
+        action = attrs["action"]
+
+        if action == "claim":
+            if booking.status in self.TERMINAL_STATUSES:
+                raise serializers.ValidationError(
+                    f"This booking is already {booking.get_status_display().lower()} "
+                    "and can no longer be claimed."
+                )
+            # Already the caller's job — idempotent, not an error. The view
+            # returns 200 without writing a second audit row, so a retry after
+            # a dropped response doesn't spam the timeline.
+            if booking.assigned_staff_id == actor.id:
+                return attrs
+            if booking.assigned_staff_id is not None:
+                raise serializers.ValidationError(
+                    "This booking is already assigned to another technician."
+                )
+            return attrs
+
+        # Everything past `claim` requires the caller to own the job.
+        if booking.assigned_staff_id != actor.id:
+            raise serializers.ValidationError(
+                "This booking is assigned to another technician. Claim it first."
+            )
+
+        allowed = self.REQUIRED_STATUS[action]
+        if booking.status not in allowed:
+            raise serializers.ValidationError(
+                f"Cannot record '{action}' while this booking is "
+                f"{booking.get_status_display().lower()}."
+            )
+
+        return attrs
+
+
+class FeedbackCreateSerializer(serializers.Serializer):
+    """
+    Request body for `POST /api/feedback/`.
+
+    Three things have to be true before a review is worth storing, and all
+    three are checked here rather than in the view so the caller gets a
+    field-keyed 400:
+
+      * the booking exists and belongs to the caller;
+      * the booking is `completed` — a review of work still in hand is not a
+        review;
+      * the booking has not already been reviewed.
+
+    The ownership and not-found cases are deliberately collapsed into a single
+    "not found" message. Distinguishing them would turn this endpoint into an
+    oracle that confirms which booking ids exist to any authenticated caller.
+    """
+
+    booking_id = serializers.IntegerField(help_text="Id of the completed booking being reviewed.")
+    rating = serializers.IntegerField(
+        min_value=Feedback.RATING_MIN,
+        max_value=Feedback.RATING_MAX,
+        help_text=f"{Feedback.RATING_MIN} (worst) to {Feedback.RATING_MAX} (best) stars.",
+    )
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text="Optional free-text note shown to the customer and to admins.",
+    )
+
+    def validate(self, attrs):
+        booking_id = attrs["booking_id"]
+
+        # An id that does not exist at all is a 404, not a 400. The two cases
+        # are genuinely different: "no such booking" is a wrong URL, while "not
+        # yours" is a business-rule refusal.
+        if not Booking.objects.filter(pk=booking_id).exists():
+            raise exceptions.NotFound("Booking not found.")
+
+        booking = (
+            Booking.objects.filter(pk=booking_id, customer=self.context["actor"])
+            .select_related("feedback")
+            .first()
+        )
+        if booking is None:
+            # The id exists but is not the caller's. Deliberately the same
+            # wording the 404 uses, so a caller cannot tell "no such booking"
+            # from "someone else's booking" by probing ids — see the class
+            # docstring. The status code differs only because a 403 would
+            # confirm the id is real.
+            raise exceptions.NotFound("Booking not found.")
+
+        if booking.status != Booking.Status.COMPLETED:
+            raise serializers.ValidationError(
+                {"booking_id": "You can only review a booking once it is completed."}
+            )
+
+        if hasattr(booking, "feedback"):
+            raise serializers.ValidationError(
+                {"booking_id": "You have already reviewed this booking."}
+            )
+
+        # Stashed for create(); the view does not re-resolve the booking.
+        self._booking = booking
+        return attrs
+
+    def create(self, validated_data):
+        return Feedback.objects.create(
+            booking=self._booking,
+            customer=self.context["actor"],
+            rating=validated_data["rating"],
+            comment=(validated_data.get("comment") or "").strip(),
+        )
+
+
+class FeedbackSerializer(serializers.ModelSerializer):
+    """
+    The admin read shape for a review.
+
+    A flat projection rather than nested objects: the admin dashboard renders a
+    table, and a table wants a cell per column. `service_name` comes off the
+    booking's own snapshot rather than the live `Service` row — the price and
+    name a customer saw when they booked are the ones the review is about.
+    """
+
+    id = serializers.IntegerField(read_only=True)
+    booking_id = serializers.IntegerField(read_only=True)
+    # `get_full_name` rather than `first_name`: an operator reading reviews
+    # needs to know *which* customer complained, and "Cora" next to another
+    # "Cora" is not an answer. The accessor falls back to the username, so a
+    # customer who never filled in a name still renders as something.
+    customer_name = serializers.CharField(
+        source="customer.get_full_name", read_only=True
+    )
+    customer_email = serializers.EmailField(source="customer.email", read_only=True)
+    service_name = serializers.CharField(read_only=True)
+    comment = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = Feedback
+        fields = [
+            "id",
+            "booking_id",
+            "customer_name",
+            "customer_email",
+            "service_name",
+            "rating",
+            "comment",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 
 class BookingCreateSerializer(serializers.Serializer):

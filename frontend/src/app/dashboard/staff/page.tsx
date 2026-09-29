@@ -50,12 +50,12 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/utils";
 import {
   getStaffBookings,
-  assignStaffBooking,
-  updateStaffBookingStatus,
+  postStaffBookingAction,
   type BookingDetail,
   type BookingStatus,
   type PaginatedResponse,
   type StaffBooking,
+  type StaffBookingAction,
   type StaffQueueFilter,
   type UserProfile,
 } from "@/lib/api";
@@ -89,7 +89,7 @@ const TABS: TabDef[] = [
     assigned: "unassigned",
     // A cancelled job is nobody's problem to claim, and a completed one is
     // already closed — showing either in the "pick this up" list is noise.
-    statuses: ["pending", "confirmed", "in_progress"],
+    statuses: ["pending", "confirmed", "on_site", "in_progress"],
     empty: "Queue is clear — every request has a technician.",
   },
   {
@@ -97,7 +97,7 @@ const TABS: TabDef[] = [
     label: "My jobs",
     icon: ClipboardList,
     assigned: "mine",
-    statuses: ["pending", "confirmed", "in_progress"],
+    statuses: ["pending", "confirmed", "on_site", "in_progress"],
     empty: "You have no active jobs. Claim one from the unassigned queue.",
   },
   {
@@ -111,52 +111,60 @@ const TABS: TabDef[] = [
 ];
 
 /**
- * The statuses a technician may move a job *to*, given where it is now.
+ * The next logical dispatch milestone.
  *
- * Mirrors the server's terminal-state rules, but only so the UI can grey out
- * a button the server would refuse — the server is still the authority, and
- * a disagreement shows up as an error banner rather than a silent no-op.
+ * It is a straight line — the user can only travel forward one step at a time.
+ * If the booking belongs to someone else, or is already closed, there is nothing
+ * more to do on it.
  */
-function nextActions(
-  status: BookingStatus,
-): Array<{ status: BookingStatus; label: string; icon: typeof PlayCircle }> {
-  switch (status) {
+function getNextAction(
+  booking: StaffBooking,
+  actorId: number,
+): { action: StaffBookingAction; label: string; icon: typeof PlayCircle } | null {
+  if (booking.assigned_staff_id === null && ["pending", "confirmed"].includes(booking.status)) {
+    return { action: "claim", label: "Claim job", icon: UserCheck };
+  }
+
+  if (booking.assigned_staff_id !== actorId) {
+    return null;
+  }
+
+  switch (booking.status) {
     case "pending":
-      return [
-        { status: "confirmed", label: "Confirm job", icon: UserCheck },
-        { status: "in_progress", label: "Start service", icon: PlayCircle },
-      ];
     case "confirmed":
-      return [{ status: "in_progress", label: "Start service", icon: PlayCircle }];
+      // A claimed job always moves to the site next, even if it was pre-confirmed.
+      return { action: "reached_location", label: "Reached location", icon: PlayCircle };
+    case "on_site":
+      return { action: "start_work", label: "Start work", icon: PlayCircle };
     case "in_progress":
-      return [{ status: "completed", label: "Mark completed", icon: CheckCircle2 }];
+      return { action: "complete_work", label: "Work complete", icon: CheckCircle2 };
     default:
-      // completed / cancelled are terminal — nothing to offer.
-      return [];
+      return null;
   }
 }
 
 /* ── Status modal ───────────────────────────────────────────────────────────── */
 
 /**
- * Confirmation dialog for one status transition.
+ * Confirmation dialog for one milestone progression (all except "claim").
  *
  * Notes are optional on the wire but the modal makes them easy to type,
- * because a bare status flip reaches the customer as a timeline entry with no
- * explanation attached. The `nextStatus`/`booking` pairing is deliberate: a
- * modal that outlives the tab it was opened from must not be able to fire
- * against a different booking.
+ * because a bare flip reaches the customer as a generic timeline entry. The
+ * `action`/`booking` pairing is deliberate: a modal that outlives the tab it was
+ * opened from must not be able to fire against a different booking.
  */
 function StatusModal({
   booking,
-  nextStatus,
+  action,
+  heading,
   onClose,
   onConfirm,
   pending,
   error,
 }: {
   booking: StaffBooking;
-  nextStatus: BookingStatus;
+  action: StaffBookingAction;
+  heading: string;
   onClose: () => void;
   onConfirm: (notes: string) => void;
   pending: boolean;
@@ -189,7 +197,7 @@ function StatusModal({
               id="status-modal-title"
               className="font-display text-base font-bold text-ink"
             >
-              {STATUS_LABEL[nextStatus]}
+              {heading}
             </h2>
             <p className="mt-0.5 text-xs text-muted">
               {booking.service_name} · {booking.customer_name}
@@ -260,16 +268,18 @@ function JobCard({
   booking,
   isMine,
   busy,
+  actorId,
   onClaim,
   onTransition,
 }: {
   booking: StaffBooking;
   isMine: boolean;
   busy: boolean;
+  actorId: number;
   onClaim: () => void;
-  onTransition: (status: BookingStatus) => void;
+  onTransition: (action: StaffBookingAction, label: string) => void;
 }) {
-  const actions = isMine ? nextActions(booking.status) : [];
+  const next = getNextAction(booking, actorId);
 
   return (
     <Card
@@ -324,23 +334,20 @@ function JobCard({
 
         {/* Actions */}
         <div className="flex shrink-0 flex-wrap gap-2">
-          {!isMine && booking.assigned_staff_id === null && (
-            <Button size="sm" onClick={onClaim} disabled={busy} leadingIcon={<UserCheck size={14} />}>
-              Claim job
+          {next && (
+            <Button
+              size="sm"
+              variant={next.action === "complete_work" ? "accent" : "primary"}
+              onClick={() => {
+                if (next.action === "claim") onClaim();
+                else onTransition(next.action, next.label);
+              }}
+              disabled={busy}
+              leadingIcon={<next.icon size={14} />}
+            >
+              {next.label}
             </Button>
           )}
-          {actions.map(({ status, label, icon: Icon }) => (
-            <Button
-              key={status}
-              size="sm"
-              variant={status === "completed" ? "accent" : "primary"}
-              onClick={() => onTransition(status)}
-              disabled={busy}
-              leadingIcon={<Icon size={14} />}
-            >
-              {label}
-            </Button>
-          ))}
         </div>
       </div>
     </Card>
@@ -353,7 +360,7 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabId>("unassigned");
   const [pendingId, setPendingId] = useState<number | null>(null);
-  const [modal, setModal] = useState<{ booking: StaffBooking; next: BookingStatus } | null>(null);
+  const [modal, setModal] = useState<{ booking: StaffBooking; action: StaffBookingAction; heading: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const active = TABS.find((t) => t.id === tab)!;
@@ -443,32 +450,35 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
     queryClient.invalidateQueries({ queryKey: ["booking"], refetchType: "inactive" });
   };
 
-  const claimMutation = useMutation({
-    mutationFn: async (id: number) => {
+  /**
+   * One mutation for all four milestones, `claim` included.
+   *
+   * The server enforces the ordering, so the client does not need a second
+   * code path for "claim" — it is the same POST with a different name, and
+   * routing it through the shared endpoint means the ordering rules the UI
+   * relies on are the same ones the API enforces. Claim is the one action
+   * fired without the modal, because it takes no note and is reversible by
+   * simply picking a different job.
+   */
+  const actionMutation = useMutation({
+    mutationFn: async ({
+      id,
+      action,
+      notes,
+    }: {
+      id: number;
+      action: StaffBookingAction;
+      notes?: string;
+    }) => {
       const token = await getValidAccessToken();
       if (!token) throw new Error("unauthenticated");
-      return assignStaffBooking(id, token);
+      return postStaffBookingAction(id, { action, notes }, token);
     },
-    onMutate: (id) => {
+    onMutate: ({ id }) => {
       setActionError(null);
       setPendingId(id);
     },
-    onSuccess: () => {
-      invalidateAll();
-    },
-    // Surface the server's refusal inline instead of only in the console —
-    // "someone else claimed it first" is a normal race, not a crash.
-    onError: (err) => setActionError(err.message),
-    onSettled: () => setPendingId(null),
-  });
-
-  const statusMutation = useMutation({
-    mutationFn: async ({ id, status, notes }: { id: number; status: BookingStatus; notes: string }) => {
-      const token = await getValidAccessToken();
-      if (!token) throw new Error("unauthenticated");
-      return updateStaffBookingStatus(id, { status, notes }, token);
-    },
-    onSuccess: (updated, { id, status }) => {
+    onSuccess: (updated, { id }) => {
       // Seed the fresh status before invalidating, so a concurrent refetch
       // cannot land an older body on top of it. Invalidation only marks a
       // query stale; whatever is already in the cache is what renders in the
@@ -477,30 +487,46 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
       // reappearing as in-progress on the customer's screen.
       //
       // Only the status is copied across, and only when the cache entry
-      // exists. `updateStaffBookingStatus` returns the *staff* view of the
+      // exists. The action endpoint returns the *staff* view of the
       // booking, which carries the customer's phone and email — more than
       // the customer-facing page needs and more than it had before. Merging
       // just the status keeps the entry exactly as complete as it was, so
       // the customer's timeline and history survive a technician's action
       // instead of being replaced by a differently-shaped body.
-      queryClient.setQueryData<BookingDetail>(["booking", id], (cached) =>
-        cached ? { ...cached, status } : cached,
-      );
+      //
+      // `claim` is absent from this on purpose: it does not move the status,
+      // only the assignee.
+      if (updated.status) {
+        queryClient.setQueryData<BookingDetail>(["booking", id], (cached) =>
+          cached ? { ...cached, status: updated.status } : cached,
+        );
+      }
       invalidateAll();
       setModal(null);
       setPendingId(null);
     },
+    // Surface the server's refusal inline instead of only in the console —
+    // "someone else claimed it first" is a normal race, not a crash, and
+    // "reached_location on an already-arrived job" is a double click.
     onError: (err) => setActionError(err.message),
   });
 
-  const openModal = (booking: StaffBooking, next: BookingStatus) => {
+  const claimJob = (booking: StaffBooking) => {
+    actionMutation.mutate({ id: booking.id, action: "claim" });
+  };
+
+  const openModal = (
+    booking: StaffBooking,
+    action: StaffBookingAction,
+    heading: string,
+  ) => {
     setActionError(null);
     setPendingId(booking.id);
-    setModal({ booking, next });
+    setModal({ booking, action, heading });
   };
 
   const closeModal = () => {
-    if (statusMutation.isPending) return;
+    if (actionMutation.isPending) return;
     setModal(null);
     setPendingId(null);
   };
@@ -611,10 +637,11 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
                 <JobCard
                   key={b.id}
                   booking={b}
-                  isMine={tab !== "unassigned" && b.assigned_staff_id === user.id}
+                  isMine={b.assigned_staff_id === user.id}
                   busy={pendingId === b.id}
-                  onClaim={() => claimMutation.mutate(b.id)}
-                  onTransition={(next) => openModal(b, next)}
+                  actorId={user.id}
+                  onClaim={() => claimJob(b)}
+                  onTransition={(action, heading) => openModal(b, action, heading)}
                 />
               ))}
             </ul>
@@ -625,14 +652,15 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
       {modal && (
         <StatusModal
           booking={modal.booking}
-          nextStatus={modal.next}
-          pending={statusMutation.isPending}
-          error={statusMutation.isError ? statusMutation.error.message : null}
+          action={modal.action}
+          heading={modal.heading}
+          pending={actionMutation.isPending}
+          error={actionMutation.isError ? actionMutation.error.message : null}
           onClose={closeModal}
           onConfirm={(notes) =>
-            statusMutation.mutate({
+            actionMutation.mutate({
               id: modal.booking.id,
-              status: modal.next,
+              action: modal.action,
               notes,
             })
           }

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { DashboardShell } from "@/components/DashboardShell";
+import { FeedbackModal, StarRatingReadonly } from "@/components/FeedbackModal";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -60,48 +61,83 @@ function deriveStats(bookings: Booking[]) {
   ];
 }
 
-function BookingRow({ booking }: { booking: Booking }) {
+function BookingRow({
+  booking,
+  onRate,
+}: {
+  booking: Booking;
+  onRate: (booking: Booking) => void;
+}) {
+  // Only a completed, not-yet-reviewed job is rateable. An already-rated one
+  // shows the saved stars rather than a button that would submit a duplicate
+  // the server rejects.
+  const rateable =
+    booking.status === "completed" && booking.feedback === null;
+
   return (
     <li>
-      <Link
-        href={`/bookings/${booking.id}`}
-        className="group flex items-start gap-4 rounded-md border border-line bg-surface px-4 py-4 transition-[border-color,background-color] duration-base ease-out hover:border-line-strong hover:bg-surface-2"
-      >
-        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary">
-          <CalendarCheck size={16} aria-hidden="true" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            <p className="truncate text-sm font-semibold text-ink">
-              {booking.service_name}
-            </p>
-            <Badge tone={STATUS_TONE[booking.status]} size="sm">
-              {booking.status_display}
-            </Badge>
-          </div>
-          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-            <span className="inline-flex items-center gap-1.5">
-              <Clock size={12} aria-hidden="true" />
-              {formatBookingDate(booking.preferred_date)} ·{" "}
-              {formatBookingTime(booking.preferred_time)}
-            </span>
-            <span className="inline-flex min-w-0 items-center gap-1.5">
-              <MapPin size={12} aria-hidden="true" />
-              <span className="truncate">{booking.location}</span>
-            </span>
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <span className="font-display text-sm font-bold tabular-nums text-ink">
-            {formatPrice(booking.service_price)}
+      <div className="flex items-stretch gap-2">
+        <Link
+          href={`/bookings/${booking.id}`}
+          className="group flex flex-1 items-start gap-4 rounded-md border border-line bg-surface px-4 py-4 transition-[border-color,background-color] duration-base ease-out hover:border-line-strong hover:bg-surface-2"
+        >
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary">
+            <CalendarCheck size={16} aria-hidden="true" />
           </span>
-          <ChevronRight
-            size={16}
-            className="text-line-strong transition-transform duration-base ease-out group-hover:translate-x-0.5"
-            aria-hidden="true"
-          />
-        </div>
-      </Link>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              <p className="truncate text-sm font-semibold text-ink">
+                {booking.service_name}
+              </p>
+              <Badge tone={STATUS_TONE[booking.status]} size="sm">
+                {booking.status_display}
+              </Badge>
+              {booking.feedback && (
+                <span className="inline-flex items-center gap-1">
+                  <StarRatingReadonly value={booking.feedback.rating} />
+                </span>
+              )}
+            </div>
+            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+              <span className="inline-flex items-center gap-1.5">
+                <Clock size={12} aria-hidden="true" />
+                {formatBookingDate(booking.preferred_date)} ·{" "}
+                {formatBookingTime(booking.preferred_time)}
+              </span>
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <MapPin size={12} aria-hidden="true" />
+                <span className="truncate">{booking.location}</span>
+              </span>
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="font-display text-sm font-bold tabular-nums text-ink">
+              {formatPrice(booking.service_price)}
+            </span>
+            <ChevronRight
+              size={16}
+              className="text-line-strong transition-transform duration-base ease-out group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
+          </div>
+        </Link>
+
+        {/* Sibling of the link, never a child: a <button> inside an <a> is
+            invalid HTML and swallows the click as a navigation. This keeps the
+            two as separate tab stops, which is also the correct keyboard
+            model — Enter on the link opens the booking, Enter on the button
+            opens the review form. */}
+        {rateable && (
+          <Button
+            variant="accent"
+            size="sm"
+            className="self-center"
+            onClick={() => onRate(booking)}
+          >
+            Rate
+          </Button>
+        )}
+      </div>
     </li>
   );
 }
@@ -342,6 +378,10 @@ function EvBookings() {
 }
 
 function CustomerBookings() {
+  // The booking being reviewed. Held as the whole object rather than an id so
+  // the modal has the service name to show without a second lookup.
+  const [ratingFor, setRatingFor] = useState<Booking | null>(null);
+
   const { data, isLoading, isError, error } = useQuery<
     PaginatedResponse<Booking>,
     Error
@@ -421,7 +461,7 @@ function CustomerBookings() {
         ) : (
           <ul className="flex flex-col gap-3">
             {bookings.map((b) => (
-              <BookingRow key={b.id} booking={b} />
+              <BookingRow key={b.id} booking={b} onRate={setRatingFor} />
             ))}
           </ul>
         )}
@@ -429,6 +469,17 @@ function CustomerBookings() {
 
       {/* EV charging reservations — real data, from the same account */}
       <EvBookings />
+
+      {ratingFor && (
+        <FeedbackModal
+          bookingId={ratingFor.id}
+          serviceName={ratingFor.service_name}
+          onClose={() => setRatingFor(null)}
+          // The modal invalidates `bookings` itself, so the list re-renders
+          // with the saved stars and the Rate button disappears on its own.
+          onSubmitted={() => setRatingFor(null)}
+        />
+      )}
     </div>
   );
 }

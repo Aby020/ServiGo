@@ -266,6 +266,7 @@ export async function fetchServiceDetail(id: number): Promise<ServiceDetail> {
 export type BookingStatus =
   | "pending"
   | "confirmed"
+  | "on_site"
   | "in_progress"
   | "completed"
   | "cancelled";
@@ -292,10 +293,25 @@ export interface Booking {
   status_display: string;
   created_at: string;
   updated_at: string;
+  /**
+   * The caller's own review of this booking, or null if they have not written
+   * one. On the list, not just the detail: the customer's dashboard needs it
+   * in order to show the saved stars on a rated row and to hide the Rate
+   * button — otherwise it offers a second review the server rejects as a
+   * duplicate.
+   */
+  feedback: BookingFeedback | null;
 }
 
 export interface BookingDetail extends Booking {
   status_history: BookingStatusHistory[];
+}
+
+/** A customer's rating and comment on a completed booking. */
+export interface BookingFeedback {
+  rating: number;
+  comment: string;
+  created_at: string;
 }
 
 export interface CreateBookingPayload {
@@ -465,6 +481,83 @@ export async function updateStaffBookingStatus(
     accessToken,
   );
   return handleResponse<StaffBookingDetail>(res);
+}
+
+/**
+ * The four dispatch milestones, in the order they must be recorded.
+ *
+ * Naming them rather than posting a status is the whole point: the server can
+ * reject `start_work` on a job nobody has arrived at, which is exactly the
+ * mistake a free-form status POST cannot catch.
+ */
+export type StaffBookingAction =
+  | "claim"
+  | "reached_location"
+  | "start_work"
+  | "complete_work";
+
+export interface StaffBookingActionPayload {
+  action: StaffBookingAction;
+  /** Optional note appended to the audit entry the server writes. */
+  notes?: string;
+}
+
+export async function postStaffBookingAction(
+  id: number,
+  payload: StaffBookingActionPayload,
+  accessToken: string,
+): Promise<StaffBookingDetail> {
+  const res = await authedFetch(
+    `${API_URL}/staff/bookings/${id}/actions/`,
+    { method: "POST", body: JSON.stringify(payload) },
+    accessToken,
+  );
+  return handleResponse<StaffBookingDetail>(res);
+}
+
+// ── Customer feedback ─────────────────────────────────────────────────────────
+
+export interface Feedback {
+  id: number;
+  booking_id: number;
+  customer_name: string;
+  customer_email: string;
+  service_name: string;
+  rating: number;
+  comment: string;
+  created_at: string;
+}
+
+export interface CreateFeedbackPayload {
+  rating: number;
+  comment?: string;
+}
+
+export async function submitFeedback(
+  bookingId: number,
+  payload: CreateFeedbackPayload,
+  accessToken: string,
+): Promise<Feedback> {
+  const res = await authedFetch(
+    `${API_URL}/feedback/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ booking_id: bookingId, ...payload }),
+    },
+    accessToken,
+  );
+  return handleResponse<Feedback>(res);
+}
+
+export async function fetchAdminFeedback(
+  accessToken: string,
+): Promise<Feedback[]> {
+  const res = await authedFetch(
+    `${API_URL}/admin/feedback/`,
+    { method: "GET" },
+    accessToken,
+  );
+  return handleResponse<Feedback[]>(res);
 }
 
 // ── EV charging ───────────────────────────────────────────────────────────────

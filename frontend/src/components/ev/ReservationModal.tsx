@@ -31,6 +31,7 @@ import {
   type EvStation,
 } from "@/lib/api";
 import { getValidAccessToken } from "@/lib/auth";
+import { formatSlotTime } from "@/lib/booking-ui";
 import { loginHref, signupHref, useSession } from "@/lib/session";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
@@ -63,9 +64,37 @@ function slotToIso(slotStart: string, isoDate: string): string {
   return d.toISOString();
 }
 
-/** "14:30" from "14:30:00" — the grid's own precision, trimmed for display. */
-function displayTime(iso: string): string {
-  return iso.slice(0, 5);
+/** Part-of-day buckets a window can fall into, in the order they are rendered. */
+const DAY_PARTS = [
+  { id: "morning", label: "Morning" },
+  { id: "afternoon", label: "Afternoon" },
+  { id: "evening", label: "Evening" },
+] as const;
+
+type DayPart = (typeof DAY_PARTS)[number]["id"];
+
+interface SlotChip {
+  /** Local ISO instant, sent verbatim as `slot_time` once chosen. */
+  iso: string;
+  /** The grid's own `"HH:MM:SS"` wall clock — what the chip is labelled with. */
+  start: string;
+  available: boolean;
+  ports: number;
+}
+
+/**
+ * Which bucket a `"HH:MM:SS"` wall clock belongs to.
+ *
+ * Boundaries are on the hour rather than on the "12/17" convention because a
+ * charging station's day is framed by its own peak hours: the 12:00–17:00
+ * window is exactly the stretch an operator would call the afternoon build-up,
+ * and splitting it further would produce a group too short to read as one.
+ */
+function partOfDay(start: string): DayPart {
+  const hour = Number(start.slice(0, 2));
+  if (hour < 12) return "morning";
+  if (hour < 17) return "afternoon";
+  return "evening";
 }
 
 export function ReservationModal({
@@ -129,14 +158,21 @@ export function ReservationModal({
   });
 
   /**
-   * Slots grouped by calendar day, so the picker reads as "today / tomorrow"
-   * rather than as 48 undifferentiated times.
+   * Slots grouped by calendar day, then by part of day, so the picker reads as
+   * "Today → Morning → 09:00 AM" rather than as 48 undifferentiated times.
    *
    * The grid publishes wall-clock times only, so the date is recovered from the
    * sequence itself: the first window belongs to today, and every time the
    * clock goes *backwards* in the list the grid has crossed midnight. That is
    * exactly the boundary the server used when it built the grid, so the two
    * agree without either side having to publish a date.
+   *
+   * The order matters and is not interchangeable: part-of-day is nested
+   * *inside* the day, never the reverse. `09:00` legitimately appears twice in
+   * a 24-hour grid, and the midnight detection above is the only thing that
+   * tells the two copies apart. Group by part of day first and that signal is
+   * gone — the two `09:00` chips would collide into one group and one of them
+   * would become unselectable.
    */
   const slotsByDay = useMemo(() => {
     const slots = detail.data?.slot_grid.slots ?? [];
@@ -145,7 +181,7 @@ export function ReservationModal({
     const groups: {
       isoDate: string;
       label: string;
-      slots: { iso: string; available: boolean; ports: number }[];
+      parts: { id: DayPart; label: string; slots: SlotChip[] }[];
     }[] = [];
     let previousMinutes: number | null = null;
     let current: (typeof groups)[number] | null = null;
@@ -173,14 +209,25 @@ export function ReservationModal({
                     day: "numeric",
                     month: "short",
                   }),
-          slots: [],
+          parts: [],
         };
         groups.push(current);
       }
       previousMinutes = minutes;
 
-      current.slots.push({
+      const partId = partOfDay(slot.start);
+      let part = current.parts.find((p) => p.id === partId);
+      if (!part) {
+        part = { id: partId, label: DAY_PARTS.find((p) => p.id === partId)!.label, slots: [] };
+        // Slots arrive in chronological order, which is already the DAY_PARTS
+        // order — so appending keeps the buckets in morning→evening sequence
+        // without a second sort.
+        current.parts.push(part);
+      }
+
+      part.slots.push({
         iso: slotToIso(slot.start, current.isoDate),
+        start: slot.start,
         available: slot.is_available,
         ports: slot.available_ports,
       });
@@ -193,7 +240,10 @@ export function ReservationModal({
   // free bay only has to confirm.
   useEffect(() => {
     if (slotIso) return;
-    const first = slotsByDay.flatMap((g) => g.slots).find((s) => s.available);
+    const first = slotsByDay
+      .flatMap((g) => g.parts)
+      .flatMap((p) => p.slots)
+      .find((s) => s.available);
     if (first) setSlotIso(first.iso);
   }, [slotsByDay, slotIso]);
 
@@ -247,7 +297,11 @@ export function ReservationModal({
   };
 
   const selected = useMemo(
-    () => slotsByDay.flatMap((g) => g.slots).find((s) => s.iso === slotIso) ?? null,
+    () =>
+      slotsByDay
+        .flatMap((g) => g.parts)
+        .flatMap((p) => p.slots)
+        .find((s) => s.iso === slotIso) ?? null,
     [slotsByDay, slotIso],
   );
   const estimate = (Number(kwh) || 0) * station.price_per_kwh;
@@ -308,7 +362,7 @@ export function ReservationModal({
               Bay reserved
             </h3>
             <p className="mt-1.5 text-sm text-text-soft">
-              {displayTime(reserved.slotIso)} at {station.name}. Reference #
+              {formatSlotTime(reserved.slotIso)} at {station.name}. Reference #
               {reserved.id}.
             </p>
             <p className="mt-1 text-sm text-text-soft">
@@ -390,42 +444,65 @@ export function ReservationModal({
                   </p>
                 ) : (
                   slotsByDay.map((group) => (
-                    <div key={group.isoDate} className="mb-2.5 last:mb-0">
-                      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    <div key={group.isoDate} className="mb-4 last:mb-0">
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink">
                         {group.label}
                       </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {group.slots.map((slot) => {
-                          const active = slot.iso === slotIso;
-                          return (
-                            <button
-                              key={slot.iso}
-                              type="button"
-                              disabled={!slot.available || !isAuthed || isResolving}
-                              aria-pressed={active}
-                              onClick={() => setSlotIso(slot.iso)}
-                              title={
-                                slot.available
-                                  ? `${slot.ports} bay${slot.ports === 1 ? "" : "s"} free`
-                                  : "Fully booked"
-                              }
-                              className={cn(
-                                "h-9 rounded-md border px-2.5 font-mono text-xs font-medium",
-                                "transition-[background-color,border-color,color] duration-base ease-out",
-                                !slot.available &&
-                                  "cursor-not-allowed border-line bg-surface-2 text-muted line-through",
-                                slot.available &&
-                                  !active &&
-                                  "border-line bg-surface text-text-soft hover:border-primary/40 hover:text-primary",
-                                active &&
-                                  "border-primary bg-primary text-on-primary",
-                              )}
-                            >
-                              {displayTime(slot.iso)}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {group.parts.map((part) => (
+                        <div key={part.id} className="mb-2 last:mb-0">
+                          <p className="mb-1.5 text-[11px] uppercase tracking-wider text-muted">
+                            {part.label}
+                          </p>
+                          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                            {part.slots.map((slot) => {
+                              const active = slot.iso === slotIso;
+                              return (
+                                <button
+                                  key={slot.iso}
+                                  type="button"
+                                  disabled={!slot.available || !isAuthed || isResolving}
+                                  aria-pressed={active}
+                                  onClick={() => setSlotIso(slot.iso)}
+                                  title={
+                                    slot.available
+                                      ? `${formatSlotTime(slot.start)} · ${slot.ports} bay${slot.ports === 1 ? "" : "s"} free`
+                                      : `${formatSlotTime(slot.start)} · fully booked`
+                                  }
+                                  className={cn(
+                                    "flex flex-col items-center justify-center rounded-md border px-1.5 py-1.5",
+                                    "transition-[background-color,border-color,color] duration-base ease-out",
+                                    !slot.available &&
+                                      "cursor-not-allowed border-line bg-surface-2 text-muted",
+                                    slot.available &&
+                                      !active &&
+                                      "border-line bg-surface text-text-soft hover:border-primary/40 hover:text-primary",
+                                    active &&
+                                      "border-primary bg-primary text-on-primary",
+                                  )}
+                                >
+                                  <span className="font-mono text-xs font-semibold">
+                                    {formatSlotTime(slot.start)}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "mt-0.5 text-[10px] leading-tight",
+                                      active
+                                        ? "text-on-primary/80"
+                                        : slot.available
+                                          ? "text-muted"
+                                          : "text-muted",
+                                    )}
+                                  >
+                                    {slot.available
+                                      ? `${slot.ports} free`
+                                      : "Full"}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))
                 )}
@@ -500,7 +577,7 @@ export function ReservationModal({
                   : isGuest
                     ? "Sign in to continue"
                     : selected
-                      ? `${displayTime(selected.iso)} · ${selected.ports} bay${selected.ports === 1 ? "" : "s"} free`
+                      ? `${formatSlotTime(selected.start)} · ${selected.ports} bay${selected.ports === 1 ? "" : "s"} free`
                       : "No window selected"}
               </p>
               <Button

@@ -18,6 +18,7 @@ from .views import (
     StaffBookingListView,
     StaffBookingAssignView,
     StaffBookingStatusView,
+    StaffBookingActionView,
     EVStationListView,
     EVStationDetailView,
     EVBookingListCreateView,
@@ -25,6 +26,8 @@ from .views import (
     EVBookingCancelView,
     AdminStaffListCreateView,
     AdminMetricsView,
+    FeedbackCreateView,
+    AdminFeedbackListView,
 )
 
 urlpatterns = [
@@ -49,10 +52,17 @@ urlpatterns = [
     path("bookings/<int:pk>/", BookingDetailView.as_view(), name="api-booking-detail"),
     path("bookings/<int:pk>/cancel/", BookingCancelView.as_view(), name="api-booking-cancel"),
 
+    # Customer reviews (the booking's own customer only)
+    path("feedback/", FeedbackCreateView.as_view(), name="api-feedback"),
+
     # Staff dispatch (service staff only)
     path("staff/bookings/", StaffBookingListView.as_view(), name="api-staff-bookings"),
     path("staff/bookings/<int:pk>/assign/", StaffBookingAssignView.as_view(), name="api-staff-booking-assign"),
     path("staff/bookings/<int:pk>/status/", StaffBookingStatusView.as_view(), name="api-staff-booking-status"),
+    # The four explicit dispatch milestones: claim → reached_location →
+    # start_work → complete_work. Strictly ordered; a stage fired twice is a
+    # 400, not a silent success.
+    path("staff/bookings/<int:pk>/actions/", StaffBookingActionView.as_view(), name="api-staff-booking-action"),
 
     # EV charging — stations are public, reservations require a session
     path("ev/stations/", EVStationListView.as_view(), name="api-ev-stations"),
@@ -65,4 +75,5 @@ urlpatterns = [
     # the views, not by URL placement)
     path("admin/staff/", AdminStaffListCreateView.as_view(), name="api-admin-staff"),
     path("admin/metrics/", AdminMetricsView.as_view(), name="api-admin-metrics"),
+    path("admin/feedback/", AdminFeedbackListView.as_view(), name="api-admin-feedback"),
 ]

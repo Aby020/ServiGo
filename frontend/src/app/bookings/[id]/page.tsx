@@ -19,6 +19,7 @@ import {
 import { motion } from "framer-motion";
 
 import { MotionPage } from "@/components/motion";
+import { FeedbackModal, StarRatingReadonly } from "@/components/FeedbackModal";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -98,6 +99,7 @@ export default function BookingDetailPage() {
   const id = Number(params.id);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const {
@@ -105,6 +107,7 @@ export default function BookingDetailPage() {
     isLoading,
     isError,
     error,
+    refetch,
   } = useQuery<BookingDetail, Error>({
     queryKey: ["booking", id],
     queryFn: async () => {
@@ -251,6 +254,24 @@ export default function BookingDetailPage() {
                 Cancel booking
               </Button>
             )}
+            {isCompleted &&
+              (booking.feedback ? (
+                // Already rated. Offering the button again would send the
+                // customer into a form whose submit the server rejects as a
+                // duplicate, so the saved rating is shown read-only instead.
+                <div className="flex items-center gap-2">
+                  <StarRatingReadonly value={booking.feedback.rating} />
+                  <span className="text-xs text-muted">Your review</span>
+                </div>
+              ) : (
+                <Button
+                  variant="accent"
+                  size="sm"
+                  onClick={() => setFeedbackOpen(true)}
+                >
+                  Rate &amp; review service
+                </Button>
+              ))}
           </div>
         </div>
 
@@ -559,6 +580,21 @@ export default function BookingDetailPage() {
             </Card>
           </motion.div>
         </div>
+      )}
+
+      {/* Review modal. `refetch` after a successful submit so the header
+          swaps the button for the saved rating — the cache is invalidated by
+          the modal itself, but this view is the one that has to re-render. */}
+      {feedbackOpen && (
+        <FeedbackModal
+          bookingId={booking.id}
+          serviceName={booking.service_name}
+          onClose={() => setFeedbackOpen(false)}
+          onSubmitted={() => {
+            refetch();
+            setFeedbackOpen(false);
+          }}
+        />
       )}
     </MotionPage>
   );

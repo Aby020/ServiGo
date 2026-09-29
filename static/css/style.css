@@ -656,6 +656,16 @@ img { max-width: 100%; height: auto; }
 .status-pending { background: #fff3e6; color: #b45309; }
 .status-confirmed { background: var(--sg-primary-light); color: var(--sg-primary); }
 .status-in-progress { background: var(--sg-accent-light); color: var(--sg-accent); }
+/* The templates paint the raw enum value — `status-{{ booking.status }}` — so
+   these two carry the underscore the database actually stores. The hyphenated
+   rules above are kept because older templates still name the status that way,
+   and the two spellings cannot both match. Without the underscored pair an
+   in-progress or on-site job renders as an unstyled grey pill. */
+.status-in_progress { background: var(--sg-accent-light); color: var(--sg-accent); }
+.status-on_site, .status-on-site {
+    background: #e8e4f7;
+    color: var(--sg-primary);
+}
 .status-active { background: var(--sg-primary-light); color: var(--sg-primary); }
 .status-completed { background: #e6f4ec; color: var(--sg-success); }
 .status-cancelled { background: #fdeaea; color: var(--sg-danger); }

@@ -4,14 +4,13 @@ Views for the dashboard app.
 from django.shortcuts import render, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
-from django.views.generic import TemplateView
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from datetime import timedelta
 
 from bookings.models import Booking
 from ev_charging.models import EVChargingBooking, EVChargingStation
-from services.models import Service, ServiceCategory
+from services.models import ServiceCategory
 from accounts.models import User, StaffProfile, CustomerProfile
 
 
@@ -19,12 +18,6 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     """Mixin to require staff or admin role."""
     def test_func(self):
         return self.request.user.is_staff_user or self.request.user.is_admin_user
-
-
-class AdminRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
-    """Mixin to require admin role."""
-    def test_func(self):
-        return self.request.user.is_admin_user
 
 
 @login_required
@@ -36,7 +29,12 @@ def customer_dashboard(request):
     # Upcoming bookings
     upcoming_bookings = Booking.objects.filter(
         customer=user,
-        status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED, Booking.Status.IN_PROGRESS],
+        status__in=[
+            Booking.Status.PENDING,
+            Booking.Status.CONFIRMED,
+            Booking.Status.ON_SITE,
+            Booking.Status.IN_PROGRESS,
+        ],
         preferred_date__gte=timezone.now().date()
     ).order_by("preferred_date", "preferred_time")[:5]
 
@@ -101,7 +99,12 @@ def staff_dashboard(request):
     today = timezone.now().date()
     todays_bookings = Booking.objects.filter(
         preferred_date=today,
-        status__in=[Booking.Status.PENDING, Booking.Status.CONFIRMED, Booking.Status.IN_PROGRESS]
+        status__in=[
+            Booking.Status.PENDING,
+            Booking.Status.CONFIRMED,
+            Booking.Status.ON_SITE,
+            Booking.Status.IN_PROGRESS,
+        ]
     )
 
     # If staff (not admin), filter to assigned or unassigned
@@ -130,7 +133,8 @@ def staff_dashboard(request):
         assigned_staff=user, status=Booking.Status.COMPLETED
     ).count()
     in_progress_assigned = Booking.objects.filter(
-        assigned_staff=user, status=Booking.Status.IN_PROGRESS
+        assigned_staff=user,
+        status__in=[Booking.Status.ON_SITE, Booking.Status.IN_PROGRESS],
     ).count()
 
     # Recent activity

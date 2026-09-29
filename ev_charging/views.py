@@ -7,8 +7,6 @@ from django.contrib import messages
 from django.views.generic import ListView, DetailView, CreateView
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Q
-from django.core.paginator import Paginator
-from django.utils import timezone
 from django.core.mail import send_mail
 from django.conf import settings
 

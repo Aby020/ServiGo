@@ -9,7 +9,6 @@ Usage:
     python scripts/verify_auth.py [base_url]
 """
 import http.cookiejar
-import re
 import sys
 import urllib.parse
 import urllib.request
