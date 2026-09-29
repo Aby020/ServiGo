@@ -13,6 +13,8 @@ Role-isolated dashboards for customers, staff, and administrators.
 
 ---
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-servigo--web.onrender.com-46E3A3?logo=render&logoColor=white)](https://servigo-web.onrender.com)
+[![API Docs](https://img.shields.io/badge/API_Docs-servigo--api.onrender.com/api/docs-0EA5E9?logo=readthedocs&logoColor=white)](https://servigo-api.onrender.com/api/docs/)
 ![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django&logoColor=white)
 ![DRF](https://img.shields.io/badge/DRF-3.15-ff1709?logo=django&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
@@ -26,6 +28,21 @@ Role-isolated dashboards for customers, staff, and administrators.
 ![Security](https://img.shields.io/badge/security-IDOR_hardened-8957e5?logo=shield&logoColor=white)
 
 </div>
+
+---
+
+## 🌐 Live Deployment
+
+The platform is deployed and running — both tiers are live, so there is nothing to
+install before you can click through it.
+
+| | | |
+| :-: | :-: | :-: |
+| 🌐 **Live Web App**<br/>[https://servigo-web.onrender.com](https://servigo-web.onrender.com) | 📚 **API Docs (Swagger UI)**<br/>[https://servigo-api.onrender.com/api/docs/](https://servigo-api.onrender.com/api/docs/) | 🧩 **API Base**<br/>`https://servigo-api.onrender.com/api/` |
+
+> Both services are hosted on Render with a managed Postgres database, so cold starts
+> on the free tier can take a few seconds on the first request. Sign in with the demo
+> accounts in [Demo Accounts](#demo-accounts) to reach the role-isolated dashboards.
 
 ---
 
@@ -444,11 +461,22 @@ cd frontend && npm run build
 
 ### API documentation
 
+Running locally:
+
 | | |
 | :-: | :-: |
 | **Swagger UI** | http://127.0.0.1:8004/api/docs/ |
 | **ReDoc** | http://127.0.0.1:8004/api/schema/redoc/ |
 | **Raw schema** | http://127.0.0.1:8004/api/schema/ |
+
+Live deployment:
+
+| | |
+| :-: | :-: |
+| **API base** | https://servigo-api.onrender.com/api/ |
+| **Swagger UI** | https://servigo-api.onrender.com/api/docs/ |
+| **ReDoc** | https://servigo-api.onrender.com/api/schema/redoc/ |
+| **Raw schema** | https://servigo-api.onrender.com/api/schema/ |
 
 ---
 
