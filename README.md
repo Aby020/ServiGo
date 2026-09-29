@@ -50,7 +50,9 @@ Role-isolated dashboards for customers, staff, and administrators.
 | ![Landing](docs/screenshots/landing.png) | ![EV map](docs/screenshots/ev-map.png) |
 | *Landing — hero and service bento grid* | *EV discovery — geospatial station map and slot reservation* |
 | ![Staff dashboard](docs/screenshots/staff-dashboard.png) | ![Admin hub](docs/screenshots/admin-hub.png) |
-| *Staff dispatch — field technician stage queue* | *Admin hub — analytics, provisioning, customer reviews* |
+| *Staff dispatch — field technician stage queue* | *Admin hub — analytics and staff provisioning* |
+| ![Customer reviews](docs/screenshots/admin-reviews.png) | |
+| *Customer feedback — platform-wide ratings and reviews moderation* | |
 
 ---
 
