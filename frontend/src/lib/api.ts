@@ -3,8 +3,25 @@
  * All calls go to NEXT_PUBLIC_API_URL (http://127.0.0.1:8004/api).
  */
 
-export const API_URL =
-  (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8004") + "/api";
+/**
+ * Base URL of the backend, without the `/api` suffix.
+ *
+ * The trailing slash is stripped rather than merely avoided, because the
+ * variable is set by hand in deployment dashboards and a copy-pasted
+ * `https://host/` would otherwise produce the `//api` that is technically a
+ * protocol-relative URL and resolves to the wrong host entirely — a failure
+ * that looks like a network drop rather than a config typo. Regex rather than
+ * `endsWith` so `https://host///` collapses to a single clean origin.
+ *
+ * Empty string is a deliberate non-match: `NEXT_PUBLIC_API_URL=""` in a `.env`
+ * should fall back to the local default instead of yielding the relative URL
+ * `/api`, which would silently point the app at its own origin.
+ */
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+
+export const API_URL = `${
+  (rawApiUrl || "http://127.0.0.1:8004").replace(/\/+$/, "")
+}/api`;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

@@ -288,7 +288,7 @@ export default function ServicesPage() {
                   Failed to load services.
                 </p>
                 <p className="mt-1 text-sm text-text-soft">
-                  Make sure the backend is running on port 8004, then try again.
+                  Service unavailable. Connecting to dispatch network...
                 </p>
               </Card>
             )}

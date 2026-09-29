@@ -459,8 +459,8 @@ export default function EvPage() {
                   Could not load stations
                 </p>
                 <p className="mt-1 text-xs text-text-soft">
-                  The charging service is not responding. Check that the API is
-                  running on port 8004.
+                  The charging service is not responding. Service unavailable.
+                  Connecting to dispatch network...
                 </p>
                 <Button
                   variant="secondary"
