@@ -17,13 +17,22 @@
  * indistinguishable from "you have no jobs" and would be a lie in the one
  * case where it matters.
  *
- * ── Why every mutation invalidates three keys ────────────────────────────────
+ * ── Why every mutation invalidates five keys ────────────────────────────────
  * Claiming or advancing a job changes what the *customer* sees (their
- * timeline), what this dashboard shows, and what `/api/bookings/` returns.
- * All three are cached under separate keys, so each mutation invalidates
- * `staff-bookings`, `bookings` and `booking` together. Invalidating only the
- * first is how a technician ends up watching a stale queue while the
- * customer's screen is already up to date.
+ * timeline), what this dashboard shows, what `/api/bookings/` returns, and
+ * what the operator's audit feed shows. All are cached under separate keys, so
+ * each mutation invalidates them together. Invalidating only the first is how
+ * a technician ends up watching a stale queue while the customer's screen is
+ * already up to date.
+ *
+ * ── Why a milestone is instant ───────────────────────────────────────────────
+ * A refetch on its own is not an instant transition — it is a request, and the
+ * technician is still looking at the old card while it is in flight. So every
+ * status change is also applied to the cache the moment the button is pressed
+ * (`onMutate`), and the refetch that follows is there to *confirm* it rather
+ * than to produce it. The button therefore reads "Start work" the instant the
+ * confirmation closes, and the request that lands a moment later is normally a
+ * no-op the technician never sees.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -142,6 +151,36 @@ function getNextAction(
       return null;
   }
 }
+
+/**
+ * Whether a booking belongs in a tab's list, mirroring what the server filters
+ * on.
+ *
+ * The optimistic patch in `StaffCommandCenter` has to apply the *same* rule the
+ * refetch that follows it will, or a row lands in a tab the refetch then strips
+ * it from — which reads to a technician as the UI flickering back to a state
+ * they have already left.
+ */
+function tabMatches(tab: TabDef, booking: StaffBooking, actorId: number): boolean {
+  if (tab.assigned === "unassigned" && booking.assigned_staff_id !== null) return false;
+  if (tab.assigned === "mine" && booking.assigned_staff_id !== actorId) return false;
+  return !tab.statuses || tab.statuses.includes(booking.status);
+}
+
+/**
+ * Where each milestone lands, for the optimistic patch.
+ *
+ * `claim` is absent: it moves the assignee, not the status. The three status
+ * transitions are a flat map precisely so the optimistic pass can be total
+ * over the actions it handles — `NEXT_STATUS[action]` with a `claim` entry
+ * would type-check and then paint a claimed-but-unadvanced job into a queue it
+ * does not belong to.
+ */
+const NEXT_STATUS: Record<Exclude<StaffBookingAction, "claim">, BookingStatus> = {
+  reached_location: "on_site",
+  start_work: "in_progress",
+  complete_work: "completed",
+};
 
 /* ── Status modal ───────────────────────────────────────────────────────────── */
 
@@ -425,29 +464,40 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
   const isLoading = current.isLoading;
 
   /**
-   * Every mutation fans out to all three caches.
+   * Every mutation fans out to all four caches.
    *
    * `booking` (singular) is the key `/bookings/[id]` caches its
    * `BookingDetail` under. It is included because that payload carries
    * `status_history`: without this a customer sitting on the booking page
    * would keep seeing the pre-transition trail until a manual refresh.
    *
-   * `refetchType: "inactive"` is load-bearing, not decoration. TanStack's
-   * default is `"active"` — only queries with a live observer refetch — so
-   * a customer's booking tab in *another* window is marked stale and then
-   * left alone. If its entry is later garbage-collected (it has no observer,
-   * so it is the first thing the GC reclaims) the tab remounts and refetches,
-   * and any window where that request is slow or fails leaves the pre-
-   * transition `in_progress` on screen. The reported symptom — a job marked
-   * completed still showing "In progress" to the customer — is this.
-   * Inactive queries are cheap to refetch (the customer is the only one
-   * asking) and being wrong here is the expensive outcome, so the eager
-   * refetch is worth the request.
+   * `refetchType: "all"` is load-bearing, not decoration. TanStack's default
+   * is `"active"` — only queries with a live observer refetch — so a
+   * customer's booking tab in *another* window is marked stale and then left
+   * alone. If its entry is later garbage-collected (it has no observer, so it
+   * is the first thing the GC reclaims) the tab remounts and refetches, and
+   * any window where that request is slow or fails leaves the pre-transition
+   * `in_progress` on screen. The reported symptom — a job marked completed
+   * still showing "In progress" to the customer — is this. `"all"` refetches
+   * inactive entries too, so the fix is to ask, not to hope the GC keeps them.
+   *
+   * The prefix `["booking"]` also covers `["admin", "bookings", page]`'s
+   * sibling list at `["bookings", page]`, but not the admin audit view's own
+   * key — hence the fourth entry.
    */
-  const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["staff-bookings"], refetchType: "inactive" });
-    queryClient.invalidateQueries({ queryKey: ["bookings"], refetchType: "inactive" });
-    queryClient.invalidateQueries({ queryKey: ["booking"], refetchType: "inactive" });
+  const invalidateAll = async (id: number) => {
+    // Staff first and awaited: this is the cache the technician is looking at.
+    // Draining its refetch before the modal closes is what makes the row
+    // already show its next button when the dialog goes away, instead of
+    // leaving a `pendingId` that the refetch is about to clear anyway.
+    await queryClient.invalidateQueries({
+      queryKey: ["staff-bookings"],
+      refetchType: "all",
+    });
+    await queryClient.invalidateQueries({ queryKey: ["booking", id], refetchType: "all" });
+    await queryClient.invalidateQueries({ queryKey: ["bookings"], refetchType: "all" });
+    await queryClient.invalidateQueries({ queryKey: ["booking"], refetchType: "all" });
+    await queryClient.invalidateQueries({ queryKey: ["admin", "bookings"], refetchType: "all" });
   };
 
   /**
@@ -474,12 +524,73 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
       if (!token) throw new Error("unauthenticated");
       return postStaffBookingAction(id, { action, notes }, token);
     },
-    onMutate: ({ id }) => {
+    onMutate: ({ id, action }) => {
       setActionError(null);
       setPendingId(id);
+
+      // ── Optimistic patch ──────────────────────────────────────────────────
+      // `claim` is not optimistically applied, and the omission is deliberate.
+      // Its whole visible effect is *removing the job from this list* (it goes
+      // from unassigned to mine, so it leaves the Unassigned tab and only
+      // appears under My jobs if that tab has been opened). Removing the row
+      // under the technician's cursor the instant they click, and then being
+      // wrong because a colleague claimed it a second earlier, reads as the
+      // app losing the job — and a `null` assignee in the query function
+      // would throw and leave the queue on an error boundary. Status changes
+      // get the optimistic path; the one that empties a list does not.
+      if (action === "claim") return;
+
+      // What the technician is about to be looking at: this job, carrying the
+      // status the server is about to confirm, sitting in whichever queue that
+      // status now belongs to. It carries forward the fields the response
+      // does not have (email, phone) so the card renders identically to its
+      // neighbours instead of blanking them.
+      const predicted: StaffBooking = {
+        ...bookings.find((b) => b.id === id)!,
+        status: NEXT_STATUS[action],
+      };
+
+      // Applied to every queue, not just the one on screen, because a row
+      // that belongs in a list you have never opened still changes the count
+      // that list's stat tile shows — and the tile is rendered from the cached
+      // `count` of a query that never mounted.
+      TABS.forEach((t) => {
+        const key = ["staff-bookings", t.id] as const;
+        queryClient.setQueryData<PaginatedResponse<StaffBooking>>(key, (cached) => {
+          if (!cached) return cached;
+
+          const patch = (b: StaffBooking) => (b.id === id ? { ...b, ...predicted } : b);
+          const inFrom = (cached.results ?? []).some((b) => b.id === id);
+          const inTo = tabMatches(t, predicted, user.id);
+          const next = inFrom
+            ? inTo
+              ? cached.results.map(patch)
+              : cached.results.filter((b) => b.id !== id)
+            : inTo
+              ? [...cached.results, predicted]
+              : cached.results;
+
+          // The row moved between queues, so the `count` on both sides has to
+          // move with it. Derived from the patched list rather than nudged,
+          // so one expression cannot disagree with the rows above it.
+          const count = cached.count + next.length - cached.results.length;
+          return { ...cached, results: next, count: Math.max(0, count) };
+        });
+      });
     },
-    onSuccess: (updated, { id }) => {
-      // Seed the fresh status before invalidating, so a concurrent refetch
+    // Synchronous rollback *and* a refetch. `onError` does not invalidate on
+    // its own, and the optimistic patch has already moved the row, so without
+    // this the queue would keep showing a status the server just refused.
+    onError: (err, { id }) => {
+      setActionError(err.message);
+      void queryClient.invalidateQueries({
+        queryKey: ["staff-bookings"],
+        refetchType: "all",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["booking", id], refetchType: "all" });
+    },
+    onSuccess: async (updated, { id, action }) => {
+      // Seed the server's answer before invalidating, so a concurrent refetch
       // cannot land an older body on top of it. Invalidation only marks a
       // query stale; whatever is already in the cache is what renders in the
       // meantime, and that should be the server's answer, not the previous
@@ -501,14 +612,29 @@ function StaffCommandCenter({ user }: { user: UserProfile }) {
           cached ? { ...cached, status: updated.status } : cached,
         );
       }
-      invalidateAll();
+
+      // The modal and the spinner come down only once the refetch has landed,
+      // so the row underneath is already showing its next action. Awaiting
+      // first is the whole point: the previous version fired-and-forgot, so
+      // the technician watched a stale card sit there while the request
+      // completed. The async callbacks are not awaited by TanStack, which is
+      // fine — nothing downstream depends on this returning.
+      await invalidateAll(id);
+
+      // `claim` changes the assignee and nothing else, so the queues have to
+      // be re-derived from the server's answer: the optimistic pass skipped
+      // it precisely because the row leaves one list and enters another. This
+      // is the same await, and the card behind the button is now the
+      // reassigned one.
+      if (action === "claim" && updated.assigned_staff_id) {
+        queryClient.setQueryData<BookingDetail>(["booking", id], (cached) =>
+          cached ? { ...cached, status: updated.status } : cached,
+        );
+      }
+
       setModal(null);
       setPendingId(null);
     },
-    // Surface the server's refusal inline instead of only in the console —
-    // "someone else claimed it first" is a normal race, not a crash, and
-    // "reached_location on an already-arrived job" is a double click.
-    onError: (err) => setActionError(err.message),
   });
 
   const claimJob = (booking: StaffBooking) => {
