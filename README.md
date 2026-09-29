@@ -1,53 +1,72 @@
 <div align="center">
 
-# ⚡ ServiGo
+# ⚙️ ServiGo
 
 ### Enterprise Urban Services & EV Mobility Platform
 
-**A production monorepo that connects urban residents with verified service professionals — electricians, plumbers, and Smart TV technicians — alongside a live network of EV charging stations with real-time bay reservation.**
+A full-stack dispatch and charging network platform that connects urban residents with
+verified service professionals — electricians, plumbers, and Smart TV technicians —
+alongside a live network of EV charging stations with real-time bay reservation.
 
-Django 5.2 + Django REST Framework backend. Next.js App Router + TypeScript frontend. Role-isolated dashboards for customers, staff, and administrators.
+Django 5.2 + Django REST Framework backend. Next.js 16 App Router + TypeScript frontend.
+Role-isolated dashboards for customers, staff, and administrators.
 
-[![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django&style=flat-square)](https://www.djangoproject.com/)
-[![DRF](https://img.shields.io/badge/DRF-3.15-ff1709?logo=django&style=flat-square)](https://www.djangoproject.com/django-rest-framework/)
-[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&style=flat-square)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&style=flat-square)](https://www.typescriptlang.org/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&style=flat-square)](https://tailwindcss.com/)
-[![TanStack Query](https://img.shields.io/badge/TanStack_Query-v5-FF4154?logo=reactquery&style=flat-square)](https://tanstack.com/query)
-[![Leaflet](https://img.shields.io/badge/Leaflet-1.9-3C7BB6?logo=leaflet&style=flat-square)](https://leafletjs.com/)
-[![JWT](https://img.shields.io/badge/SimpleJWT-5.3-000000?logo=jsonwebtokens&style=flat-square)](https://github.com/jazzband/djangorestframework-simplejwt)
-[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0-6BA539?logo=openapiinitiative&style=flat-square)](https://spec.openapis.org/oas/v3.0.3)
-[![Tests](https://img.shields.io/badge/tests-203_passing-21A366?logo=pytest&style=flat-square)](#-testing--quality-assurance)
+---
 
-[Live Demo](https://servigo.vercel.app) · [Swagger UI](http://127.0.0.1:8004/api/docs/) · [ReDoc](http://127.0.0.1:8004/api/schema/redoc/) · [Local Setup](#-local-development)
+![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django&logoColor=white)
+![DRF](https://img.shields.io/badge/DRF-3.15-ff1709?logo=django&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
+![Tailwind](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white)
+![TanStack Query](https://img.shields.io/badge/TanStack_Query-v5-FF4154?logo=reactquery&logoColor=white)
+![Leaflet](https://img.shields.io/badge/Leaflet-1.9-199900?logo=leaflet&logoColor=white)
+![JWT](https://img.shields.io/badge/SimpleJWT-5.3-000000?logo=jsonwebtokens&logoColor=white)
+![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0-6BA539?logo=openapiinitiative&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-203_passing-2ea44f?logo=pytest&logoColor=white)
+![Security](https://img.shields.io/badge/security-IDOR_hardened-8957e5?logo=shield&logoColor=white)
 
 </div>
 
 ---
 
-## 📑 Table of Contents
+## 📊 At A Glance
 
-- [Executive Overview](#-executive-overview)
-- [System Architecture](#-system-architecture)
-- [Engineering Highlights](#-engineering-highlights)
-- [Interface Gallery](#-interface-gallery)
-- [Role Matrix & Demo Credentials](#-role-matrix--demo-credentials)
-- [API Surface](#-api-surface)
-- [Local Development](#-local-development)
-- [Testing & Quality Assurance](#-testing--quality-assurance)
-- [Project Layout](#-project-layout)
+| | | | |
+|:-:|:-:|:-:|:-:|
+| **203**<br/>automated tests, all green | **6-Stage**<br/>linear dispatch state machine | **0-SSR**<br/>dynamic Leaflet boundary | **Atomic**<br/>`F()`-guarded bay decrement |
+
+| | | | | |
+|:-:|:-:|:-:|:-:|
+| **3**<br/>tenant roles behind one API | **4**<br/>Django apps under strict boundaries | **24**<br/>REST endpoint groups | **1**<br/>append-only audit trail per booking |
 
 ---
 
-## 💼 Executive Overview
+## 📸 Interface Gallery
 
-ServiGo is a two-tier production monorepo. A **stateless JSON API gateway** built on Django 5.2 and Django REST Framework owns every business rule, state transition, and authorization decision. A **Next.js App Router** frontend owns presentation only.
+> Screenshots live in [`docs/screenshots/`](docs/screenshots/).
 
-The design principle is that **the client is a rendering layer, never a gate**. Every permission is evaluated server-side against the authenticated principal; the UI merely reflects decisions it has already been given.
+| | |
+|:---:|:---:|
+| ![Landing](docs/screenshots/landing.png) | ![EV map](docs/screenshots/ev-map.png) |
+| *Landing — hero and service bento grid* | *EV discovery — geospatial station map and slot reservation* |
+| ![Staff dashboard](docs/screenshots/staff-dashboard.png) | ![Admin hub](docs/screenshots/admin-hub.png) |
+| *Staff dispatch — field technician stage queue* | *Admin hub — analytics, provisioning, customer reviews* |
+
+---
+
+## 💼 Project Overview
+
+ServiGo is a two-tier production monorepo. A **stateless JSON API gateway** built on
+Django 5.2 and DRF owns every business rule, state transition, and authorization
+decision. A **Next.js App Router** frontend owns presentation only.
+
+The design principle is that **the client is a rendering layer, never a gate**. Every
+permission is evaluated server-side against the authenticated principal; the UI merely
+reflects decisions it has already been given.
 
 Three roles share one codebase behind strict tenant boundaries:
 
-| | Customer | Staff Technician | Platform Admin |
+| | 👤 Customer | 🔧 Staff Technician | 🛡️ Platform Admin |
 | :-: | :-: | :-: | :-: |
 | Books services | ✅ | — | — |
 | Reserves EV bays | ✅ | — | — |
@@ -122,17 +141,24 @@ graph TB
     style DB fill:#0c4a6e,stroke:#22d3ee,color:#e2e8f0
 ```
 
-**Request path in one line:** actor → Next.js client → bearer token → JWT authn → RBAC object-level check → serializer validation → domain service → guarded `UPDATE` → audit row.
+**Request path in one line:** actor → Next.js client → bearer token → JWT authn →
+RBAC object-level check → serializer validation → domain service → guarded `UPDATE` →
+audit row.
 
 ---
 
 ## 💎 Engineering Highlights
 
-### ⚛️ Concurrency-Safe Bay Reservation
+### ⚛️ Database-Level Concurrency
 
-EV charging stations are a **plain counter**, not a `select_for_update` inventory. The last bay at a busy station is therefore contended state, and the naive read-then-write (`if station.available_ports > 0: station.available_ports -= 1`) loses races by design — two requests both read `1`, both pass the guard, and the station is oversold.
+EV charging stations are a **plain counter**, not a `select_for_update` inventory. The
+last bay at a busy station is therefore contended state, and the naive read-then-write
+(`if station.available_ports > 0: station.available_ports -= 1`) loses races by
+design — two requests both read `1`, both pass the guard, and the station is
+oversold.
 
-ServiGo moves the guard **into the database statement itself** so the database's own row lock arbitrates:
+ServiGo moves the guard **into the database statement itself** so the database's own
+row lock arbitrates:
 
 ```python
 # api/serializers.py — reserve a bay
@@ -149,11 +175,16 @@ if not held:
 
 Three properties make this correct:
 
-1. **`F()` performs the arithmetic in SQL**, not in Python — no read-modify-write window exists for a second request to slip into.
-2. **`available_ports__gt=0` is a conditional `UPDATE`**, so the capacity check and the decrement are a *single* atomic statement. The loser of the race gets `held == 0` instead of an oversold station.
-3. **The counter is never allowed to go negative**, because the row can only ever be decremented while it is provably above zero.
+1. **`F()` performs the arithmetic in SQL**, not in Python — no read-modify-write
+   window exists for a second request to slip into.
+2. **`available_ports__gt=0` is a conditional `UPDATE`**, so the capacity check and the
+   decrement are a *single* atomic statement. The loser of the race gets `held == 0`
+   instead of an oversold station.
+3. **The counter is never allowed to go negative**, because the row can only ever be
+   decremented while it is provably above zero.
 
-Cancellation applies the mirror-image guard, clamping at true capacity so a double-cancel cannot inflate the count:
+Cancellation applies the mirror-image guard, clamping at true capacity so a double-cancel
+cannot inflate the count:
 
 ```python
 # api/views.py — return the bay
@@ -162,11 +193,14 @@ EVChargingStation.objects.filter(pk=booking.station_id).update(
 )
 ```
 
-Pricing is likewise **server-authoritative**: the rate is read from the station row, never the request payload, so a tampered client cannot quote itself a cheaper bay.
+Pricing is likewise **server-authoritative**: the rate is read from the station row,
+never the request payload, so a tampered client cannot quote itself a cheaper bay.
 
 ### 🔀 The Six-Stage State Machine
 
-Booking status is not a free-text field. `Booking.LIFECYCLE` is the forward path — `pending → claimed → accepted → arrived → in_progress → completed` — and transitions are **adjacency-checked**, not merely "is this a valid value".
+Booking status is not a free-text field. `Booking.LIFECYCLE` is the forward path —
+`pending → claimed → accepted → arrived → in_progress → completed` — and transitions
+are **adjacency-checked**, not merely "is this a valid value".
 
 ```python
 @classmethod
@@ -174,26 +208,47 @@ def can_transition(cls, current, target):
     return cls.next_status(current) == target
 ```
 
-`next_status()` returns the *single* status `current` may legally advance to, or `None`. That gives four guarantees for free:
+`next_status()` returns the *single* status `current` may legally advance to, or
+`None`. That gives four guarantees for free:
 
-- **Out-of-order dispatch is refused** — a technician cannot mark a job complete from `pending`.
-- **Replaying a stage is a 400, not a silent success** — a double-fired action is a client bug worth surfacing.
-- **Unknown and non-adjacent statuses both fail**, so callers get one rule rather than a set of special cases.
-- **`completed` and `cancelled` are terminal** — they live in `TERMINAL_STATUSES`, and a technician who realises they closed the wrong job needs a human to reopen it, not a second click.
+- **Out-of-order dispatch is refused** — a technician cannot mark a job complete from
+  `pending`.
+- **Replaying a stage is a 400, not a silent success** — a double-fired action is a
+  client bug worth surfacing.
+- **Unknown and non-adjacent statuses both fail**, so callers get one rule rather than
+  a set of special cases.
+- **`completed` and `cancelled` are terminal** — they live in `TERMINAL_STATUSES`, and
+  a technician who realises they closed the wrong job needs a human to reopen it, not a
+  second click.
 
-`cancelled` is deliberately **not** a member of `LIFECYCLE`. It is declared after the six stages in the enum and excluded from `OPEN_STATUSES`, so it can never be mistaken for a step on the path, and a cancelled job never inflates the dispatch queue an operator is reasoning about.
+`cancelled` is deliberately **not** a member of `LIFECYCLE`. It is declared after the
+six stages in the enum and excluded from `OPEN_STATUSES`, so it can never be mistaken
+for a step on the path, and a cancelled job never inflates the dispatch queue an
+operator is reasoning about.
 
-Every transition appends an immutable `BookingStatusHistory` row recording previous and new status, actor, and timestamp. The trail is append-only: a mistake is corrected by a new row, never by editing history.
+Every transition appends an immutable `BookingStatusHistory` row recording previous and
+new status, actor, and timestamp. The trail is append-only: a mistake is corrected by a
+new row, never by editing history.
 
-Each stage also carries a fixed `MILESTONE_NOTES` sentence shown to the customer on their timeline. That wording is a constant precisely because it must survive a technician's free-text note, an admin's manual correction, and a future data import — only a constant is guaranteed to.
+Each stage also carries a fixed `MILESTONE_NOTES` sentence shown to the customer on
+their timeline. That wording is a constant precisely because it must survive a
+technician's free-text note, an admin's manual correction, and a future data import —
+only a constant is guaranteed to.
 
-### 🔒 Defensive Security Architecture
+### 🔒 Defense-in-Depth Security
 
-The authorization layer was hardened against a real class of flaw, and the fix is worth explaining because the original bug is a genuinely tempting mistake.
+The authorization layer was hardened against a real class of flaw, and the fix is worth
+explaining because the original bug is a genuinely tempting mistake.
 
-**The trap:** on a custom user model, `is_staff_user` / `is_admin_user` are `@property` objects. So `getattr(user, "is_staff_user", False)` returns a *function object* where the attribute exists — and a bare `if` over that object is **truthy no matter what it would return**. Every account, including a plain customer, passes the check. Django's native `is_staff` is the mirror image: it is a real `BooleanField`, so `hasattr` succeeds for any defined value, *including* `False`.
+**The trap:** on a custom user model, `is_staff_user` / `is_admin_user` are
+`@property` objects. So `getattr(user, "is_staff_user", False)` returns a *function
+object* where the attribute exists — and a bare `if` over that object is **truthy no
+matter what it would return**. Every account, including a plain customer, passes the
+check. Django's native `is_staff` is the mirror image: it is a real `BooleanField`, so
+`hasattr` succeeds for any defined value, *including* `False`.
 
-**The fix** coerces to a real boolean before it can influence any decision, and keeps the role string as the source of truth:
+**The fix** coerces to a real boolean before it can influence any decision, and keeps
+the role string as the source of truth:
 
 ```python
 def _is_privileged(user):
@@ -206,13 +261,22 @@ def _is_privileged(user):
     return bool(getattr(user, "is_staff", False)) or bool(getattr(user, "is_superuser", False))
 ```
 
-`IsOwnerOrStaff` then admits exactly one of two callers — a genuinely privileged principal, or the record's actual owner. Ownership is compared on the **foreign key id** rather than the related object, so a caller cannot influence the check by mutating `obj.customer` in memory before the permission runs.
+`IsOwnerOrStaff` then admits exactly one of two callers — a genuinely privileged
+principal, or the record's actual owner. Ownership is compared on the **foreign key
+id** rather than the related object, so a caller cannot influence the check by mutating
+`obj.customer` in memory before the permission runs.
 
-This property-introspection IDOR class is locked down by dedicated regression tests in `tests/api/test_permissions.py`, including direct unit guards on `_is_privileged` covering anonymous users, `None`, and a customer who has been mis-flagged.
+This property-introspection IDOR class is locked down by dedicated regression tests in
+`tests/api/test_permissions.py`, including direct unit guards on `_is_privileged`
+covering anonymous users, `None`, and a customer who has been mis-flagged.
 
 ### 🗺️ Zero-SSR Geolocation
 
-Leaflet reads `window` and `navigator` at **module scope** — as soon as it is imported, not when a map is mounted. A plain import from a server-rendered page therefore throws during the Node render pass and takes down the whole route with a `window is not defined` error. There is no way to fix this from inside the component, because the crash happens before the component runs.
+Leaflet reads `window` and `navigator` at **module scope** — as soon as it is imported,
+not when a map is mounted. A plain import from a server-rendered page therefore throws
+during the Node render pass and takes down the whole route with a `window is not
+defined` error. There is no way to fix this from inside the component, because the
+crash happens before the component runs.
 
 The import is moved behind a client boundary instead:
 
@@ -223,60 +287,28 @@ const StationMap = dynamic(() => import("@/components/ev/StationMap"), {
 });
 ```
 
-The map and the station list are **one control, not two copies of the state**. Clicking a pin sets the selected station and scrolls its card into view; selecting a card calls `focusId`, and a `MapFocus` child pans the map to that pin. Marker colour is never a client-side guess — the server computes an `availability_tone` from the operating status *and* the free-to-total bay ratio, so a station down to its last third of bays is amber and visually distinct from one that is closed.
+The map and the station list are **one control, not two copies of the state**. Clicking
+a pin sets the selected station and scrolls its card into view; selecting a card calls
+`focusId`, and a `MapFocus` child pans the map to that pin. Marker colour is never a
+client-side guess — the server computes an `availability_tone` from the operating status
+*and* the free-to-total bay ratio, so a station down to its last third of bays is amber
+and visually distinct from one that is closed.
 
 ### 💬 Post-Completion Feedback Pipeline
 
-A rating may only be left by the customer who owns the booking, and only once the job is actually complete. The rule is **"exactly once"**: a second `POST /api/feedback/` for the same booking is a `400`, not a silent overwrite of the first review. Reviews then surface to admins through a dedicated moderation endpoint rather than being visible on the booking record itself.
-
----
-
-## 🖼️ Interface Gallery
-
-> Screenshots live in [`docs/screenshots/`](docs/screenshots/).
-
-<table>
-<tr><td width="50%" valign="top">
-
-**Landing & Services Bento**
-
-The marketing surface — a bento-grid service catalogue with negotiated AVIF/WebP image delivery.
-
-<img src="docs/screenshots/landing.png" alt="Landing page and services bento grid" />
-
-</td><td width="50%" valign="top">
-
-**EV Discovery & Time-Slot Grid**
-
-Leaflet station discovery with two-way map↔card selection, plus per-slot bay booking.
-
-<img src="docs/screenshots/ev-map.png" alt="EV charging map and time slot grid" />
-
-</td></tr>
-<tr><td width="50%" valign="top">
-
-**Staff Dispatch Queue**
-
-The operational view: claimable jobs and the strict sequential stage actions for work in hand.
-
-<img src="docs/screenshots/staff-dashboard.png" alt="Staff dispatch dashboard" />
-
-</td><td width="50%" valign="top">
-
-**Admin Hub**
-
-Platform analytics, staff account provisioning, and the full customer feedback moderation feed.
-
-<img src="docs/screenshots/admin-hub.png" alt="Admin analytics and staff provisioning hub" />
-
-</td></tr>
-</table>
+A rating may only be left by the customer who owns the booking, and only once the job
+is actually complete. The rule is **"exactly once"**: a second `POST /api/feedback/` for
+the same booking is a `400`, not a silent overwrite of the first review. Reviews then
+surface to admins through a dedicated moderation endpoint rather than being visible on
+the booking record itself.
 
 ---
 
 ## 👥 Role Matrix & Demo Credentials
 
-Access is decided by a custom `User.role` field, checked against Django's native `is_staff` / `is_superuser` flags. Only a genuinely privileged caller ever reaches another tenant's record.
+Access is decided by a custom `User.role` field, checked against Django's native
+`is_staff` / `is_superuser` flags. Only a genuinely privileged caller ever reaches
+another tenant's record.
 
 | Capability | 👤 Customer | 🔧 Staff | 🛡️ Admin |
 | ---------- | :---------: | :------: | :------: |
@@ -291,7 +323,9 @@ Access is decided by a custom `User.role` field, checked against Django's native
 | Platform-wide metrics | ❌ | ❌ | ✅ |
 | Moderate all feedback | ❌ | ❌ | ✅ |
 
-> **Privilege escalation is closed at registration.** Only `customer` and `staff` may self-register through the public form. The `role` field is server-owned and read-only on the wire; admin accounts exist only via the seed command or Django admin.
+> **Privilege escalation is closed at registration.** Only `customer` and `staff` may
+> self-register through the public form. The `role` field is server-owned and read-only
+> on the wire; admin accounts exist only via the seed command or Django admin.
 
 ### Demo Accounts
 
@@ -301,7 +335,9 @@ Access is decided by a custom `User.role` field, checked against Django's native
 | 🔧 Staff Technician | `staff@servigo.com` | `staff12345` | Staff dispatch queue |
 | 🛡️ Platform Admin | `admin@servigo.com` | `admin12345` | Admin aggregation hub |
 
-> ⚠️ **Demo credentials only.** These exist for local evaluation against a seeded database. Any real deployment must rotate them and serve over HTTPS — bearer tokens issued over plaintext are trivially interceptable.
+> ⚠️ **Demo credentials only.** These exist for local evaluation against a seeded
+> database. Any real deployment must rotate them and serve over HTTPS — bearer tokens
+> issued over plaintext are trivially interceptable.
 
 ---
 
@@ -338,18 +374,23 @@ All endpoints are namespaced under `/api/` and documented live via `drf-spectacu
 
 ---
 
-## 🚀 Local Development
+## ⚙️ Local Development
 
 **Prerequisites:** Python 3.12+ (tested on 3.13), Node.js 20+, npm 10+.
 
-The backend and frontend run as **two independent processes in two terminals**. They are never served as one process.
+The backend and frontend run as **two independent processes in two terminals**. They are
+never served as one process.
 
-### Terminal 1 — Django API
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/Aby020/ServiGo.git
 cd ServiGo
+```
 
+### 2. Backend setup
+
+```bash
 # Create and activate a virtual environment
 python -m venv venv
 source venv/Scripts/activate        # Windows Git Bash
@@ -372,7 +413,7 @@ python manage.py seed_demo
 python manage.py runserver 8004
 ```
 
-### Terminal 2 — Next.js frontend
+### 3. Frontend setup
 
 ```bash
 cd ServiGo/frontend
@@ -386,7 +427,7 @@ npm run dev
 
 Open **http://localhost:3000**.
 
-### Verify the install
+### 4. Verify the install
 
 ```bash
 # Backend test suite — 203 tests
@@ -411,7 +452,8 @@ cd frontend && npm run build
 
 ## 🧪 Testing & Quality Assurance
 
-**203 automated tests**, all passing — the suite is the enforcement mechanism for the guarantees above, not a formality.
+**203 automated tests**, all passing — the suite is the enforcement mechanism for the
+guarantees above, not a formality.
 
 | Suite | Tests | Covers |
 | ----- | :---: | ------ |
@@ -430,7 +472,7 @@ cd frontend && npm run build
 
 ## 📁 Project Layout
 
-```
+```text
 ServiGo/
 ├── config/              # Django settings, root URLconf, ASGI/WSGI
 ├── accounts/            # Custom user model, roles, auth backends
