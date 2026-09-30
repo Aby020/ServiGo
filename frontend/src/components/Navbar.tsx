@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LayoutDashboard, LogOut, Menu, X, Wrench } from "lucide-react";
 import { Container } from "@/components/ui/Container";
 import { buttonClasses } from "@/components/ui/Button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useSession, homeForRole } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -212,6 +213,8 @@ export function Navbar() {
 
         {/* Desktop actions */}
         <div className="hidden items-center gap-2 md:flex">
+          {/* Theme toggle leads the action group, matching ResumeAI's nav. */}
+          <ThemeToggle />
           {!showAuthActions ? (
             <AuthActionsPlaceholder />
           ) : status === "authed" && user ? (
@@ -225,21 +228,24 @@ export function Navbar() {
           )}
         </div>
 
-        {/* Mobile: hamburger */}
-        <button
-          type="button"
-          onClick={() => setMobileOpen((o) => !o)}
-          aria-expanded={mobileOpen}
-          aria-controls="mobile-nav"
-          aria-label={mobileOpen ? "Close menu" : "Open menu"}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md text-text-soft transition-colors duration-base ease-out hover:bg-surface-3 hover:text-ink md:hidden"
-        >
-          {mobileOpen ? (
-            <X size={20} strokeWidth={2} />
-          ) : (
-            <Menu size={20} strokeWidth={2} />
-          )}
-        </button>
+        {/* Mobile: theme toggle + hamburger */}
+        <div className="flex items-center gap-1 md:hidden">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={() => setMobileOpen((o) => !o)}
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-nav"
+            aria-label={mobileOpen ? "Close menu" : "Open menu"}
+            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-text-soft transition-colors duration-base ease-out hover:bg-surface-3 hover:text-ink md:hidden"
+          >
+            {mobileOpen ? (
+              <X size={20} strokeWidth={2} />
+            ) : (
+              <Menu size={20} strokeWidth={2} />
+            )}
+          </button>
+        </div>
       </Container>
 
       {/* Mobile panel */}

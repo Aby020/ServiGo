@@ -123,6 +123,87 @@ html {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
+   Dark — deep ink
+   ------------------------------------------------------------------------
+   The same token *names* as the light block above, re-valued for a dark
+   ground. Because every utility in the app resolves through these custom
+   properties rather than a literal colour, this block alone re-skins the
+   whole surface system — no `dark:` variant is needed anywhere in the
+   component layer. The attribute is written to <html> by ThemeProvider
+   (next-themes) before first paint, so there is no flash.
+
+   Neutrals, text ramp, borders, shadows and the status ramp are the exact
+   "deep ink" values from ResumeAI's dark theme. The brand hues are
+   ServiGo's own, lifted for a dark ground: the indigo reads as a lighter
+   azure and the amber as a warm gold, which keeps the charging surfaces
+   legible without going neon.
+   ════════════════════════════════════════════════════════════════════════ */
+:root.dark,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Surfaces & neutrals — deep ink */
+  --bg: #13161c;
+  --surface: #1a1e26;
+  --surface-2: #20242e;
+  --surface-3: #262b37;
+  --surface-inverse: #e9ecef;
+
+  /* Text */
+  --text-strong: #f2f4f7;
+  --text: #d6dae2;
+  --text-soft: #a7aeb9;
+  --text-muted: #8a919d;
+
+  /* Borders */
+  --border: #2b303c;
+  --border-strong: #3a4150;
+
+  /* Brand — ServiGo indigo, lifted for dark */
+  --primary: #60a5fa;
+  --primary-strong: #93c5fd;
+  --primary-active: #3b82f6;
+  --primary-soft: rgba(96, 165, 250, 0.14);
+  --primary-faint: rgba(96, 165, 250, 0.08);
+  --on-primary: #0a1f3d;
+  --primary-ring: rgba(96, 165, 250, 0.5);
+  --primary-glow: rgba(96, 165, 250, 0.1);
+
+  /* Accent — action orange, lifted for dark */
+  --accent: #fb923c;
+  --accent-strong: #fdba74;
+  --accent-active: #f97316;
+  --accent-soft: rgba(251, 146, 60, 0.14);
+  --on-accent: #3d1a04;
+
+  /* EV — energy amber, lifted for dark */
+  --energy: #fbbf24;
+  --energy-strong: #fcd34d;
+  --energy-soft: rgba(251, 191, 36, 0.14);
+  --on-energy: #3d2a05;
+
+  /* Status */
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.14);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.14);
+  --info: #38bdf8;
+  --info-soft: rgba(56, 189, 248, 0.14);
+  --on-success: #062e1e;
+  --on-warning: #3d2a05;
+  --on-danger: #3f0b0b;
+  --on-info: #08304a;
+
+  /* Shadows — deeper, so elevation still reads on a dark ground */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3), 0 8px 22px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.3), 0 20px 48px rgba(0, 0, 0, 0.45);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
    Tailwind bridge — map the CSS tokens onto Tailwind utilities.
    `inline` keeps the var() reference so the live value resolves at use.
    ════════════════════════════════════════════════════════════════════════ */
@@ -322,4 +403,92 @@ html {
   to {
     left: 100%;
   }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Leaflet — dark-mode adaptation for the EV station map
+   ------------------------------------------------------------------------
+   Raster tile servers only ship a light style, so a dark page would otherwise
+   sit behind a glaring white rectangle. Leaflet stamps `leaflet-layer` on the
+   GridLayer container only — verified against leaflet-src.js, where it is the
+   single place the class is added — so filtering that one class darkens the
+   *tiles* and nothing else.
+
+   Station pins are `L.divIcon` markup living in the marker pane, which is a
+   sibling of the tile layer and carries no `leaflet-layer` class. The pins
+   therefore keep their true availability colours (green / amber / grey) at
+   full strength — correct on a dark ground, and never misread as a bug. The
+   same holds for the focus ring baked into each pin's box-shadow.
+
+   The filter below inverts and re-hues: inversion alone turns water pink and
+   roads violet, so the hue-rotate pulls it back toward a neutral slate, and
+   the brightness/contrast pair keeps labels legible at zoom 13.
+
+   Popups and the map container are re-skinned separately below, because they
+   are not inside the tile layer and so never see the filter.
+   ════════════════════════════════════════════════════════════════════════ */
+:root.dark .leaflet-layer,
+:root[data-theme='dark'] .leaflet-layer {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.55);
+}
+
+/* The unfetched area around the loaded tiles should read as map, not as
+   page background flashing through. */
+:root.dark .leaflet-container,
+:root[data-theme='dark'] .leaflet-container {
+  background-color: var(--surface-3);
+  color: var(--text);
+}
+
+/* Leaflet ships its own light popups; they are plain white cards and would
+   otherwise be the only light object left on the page. */
+:root.dark .leaflet-popup-content-wrapper,
+:root.dark .leaflet-popup-tip,
+:root[data-theme='dark'] .leaflet-popup-content-wrapper,
+:root[data-theme='dark'] .leaflet-popup-tip {
+  background-color: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+
+:root.dark .leaflet-popup-content-wrapper,
+:root[data-theme='dark'] .leaflet-popup-content-wrapper {
+  border: 1px solid var(--border-strong);
+}
+
+:root.dark .leaflet-popup-close-button,
+:root[data-theme='dark'] .leaflet-popup-close-button {
+  color: var(--text-soft);
+}
+
+:root.dark .leaflet-popup-close-button:hover,
+:root[data-theme='dark'] .leaflet-popup-close-button:hover {
+  color: var(--text-strong);
+}
+
+:root.dark .leaflet-control-zoom a,
+:root.dark .leaflet-control-attribution,
+:root[data-theme='dark'] .leaflet-control-zoom a,
+:root[data-theme='dark'] .leaflet-control-attribution {
+  background-color: var(--surface);
+  color: var(--text-soft);
+  border-color: var(--border);
+}
+
+:root.dark .leaflet-control-zoom a:hover,
+:root[data-theme='dark'] .leaflet-control-zoom a:hover {
+  background-color: var(--surface-3);
+  color: var(--text-strong);
+}
+
+:root.dark .leaflet-control-attribution a,
+:root[data-theme='dark'] .leaflet-control-attribution a {
+  color: var(--primary);
+}
+
+/* Marker icons must never inherit the tile filter — pin colour encodes
+   availability, and a filtered pin would misreport an occupied bay as open. */
+:root.dark .leaflet-marker-icon,
+:root[data-theme='dark'] .leaflet-marker-icon {
+  filter: none;
 }

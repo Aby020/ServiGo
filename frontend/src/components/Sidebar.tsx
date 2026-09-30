@@ -16,6 +16,7 @@ import {
 import { clearTokens } from "@/lib/auth";
 import type { UserProfile, UserRole } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 
 interface SidebarLink {
@@ -151,6 +152,19 @@ export function Sidebar({ user }: SidebarProps) {
           <LogOut size={16} className="shrink-0" aria-hidden="true" />
           Logout
         </button>
+      </div>
+
+      {/*
+        Dashboard routes sit behind the sidebar rather than the public
+        navbar, so the toggle lives here too — otherwise the theme would be
+        reachable everywhere except the half of the app where a user spends
+        most of their time.
+      */}
+      <div className="border-t border-line px-3 pt-4">
+        <div className="flex items-center justify-between gap-3 px-3 py-1">
+          <span className="text-xs font-medium text-muted">Appearance</span>
+          <ThemeToggle className="shrink-0" />
+        </div>
       </div>
     </aside>
   );

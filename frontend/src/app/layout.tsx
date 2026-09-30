@@ -40,7 +40,18 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f6f5f2",
+  /*
+    Two media entries so the browser chrome (address bar on mobile) tracks
+    the resolved theme. The values mirror the `--bg` token in globals.css:
+    warm paper for light, deep ink for dark. next-themes' inline bootstrap
+    can only flip the class on <html> — the meta tag is static markup — so
+    the OS media query is what keeps it honest when the theme follows the
+    system.
+  */
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f6f5f2" },
+    { media: "(prefers-color-scheme: dark)", color: "#13161c" },
+  ],
 };
 
 export default function RootLayout({
@@ -55,10 +66,19 @@ export default function RootLayout({
       console warning recommending exactly this attribute. It is inert for
       normal scrolling and for `prefers-reduced-motion`-style overrides,
       since the CSS below is what actually applies the behaviour.
+
+      `suppressHydrationWarning` is required, not cosmetic. next-themes
+      injects a blocking script that writes the `dark` class onto <html>
+      before React hydrates, so the client DOM intentionally disagrees with
+      the server-rendered attribute. Without this flag React logs a
+      hydration mismatch on every page load. It is scoped to this single
+      element on purpose — suppressing it app-wide would hide real
+      mismatches everywhere else.
     */
     <html
       lang="en"
       data-scroll-behavior="smooth"
+      suppressHydrationWarning
       className={`${sora.variable} ${inter.variable}`}
     >
       <body className="page-canvas">
