@@ -1,9 +1,47 @@
 """
-Custom User model and related models for ServiGo.
+Custom user model and related models for ServiGo.
 """
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+
+
+#: Largest profile image accepted, in bytes. A profile picture is shown as a
+#: thumbnail; anything past a couple of megabytes is someone uploading a raw
+#: photo from a modern phone camera. Kept as a constant rather than a setting
+#: because it is a property of the field, not a deployment knob.
+MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024  # 2 MB
+
+#: Formats a browser renders inline without a decode step. The list is
+#: deliberately short and explicit rather than "anything Pillow can open": these
+#: images are served back from the origin to every visitor who loads a page
+#: showing an avatar, so an SVG or a PDF would be a cross-site-scripting and
+#: content-sniffing surface rather than a picture.
+ALLOWED_PROFILE_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"]
+
+
+def validate_profile_image_size(image):
+    """
+    Reject a profile image over :data:`MAX_PROFILE_IMAGE_BYTES`.
+
+    A model validator rather than a form-only check so the rule also applies to
+    the Django admin, the shell and anything that constructs a ``User``
+    directly. Note that this runs on the *uploaded* file, not on a value read
+    back from storage, so it catches the file at the moment it arrives.
+    """
+    size = getattr(image, "size", None)
+    if size is not None and size > MAX_PROFILE_IMAGE_BYTES:
+        raise ValidationError(
+            "Profile image must be %(limit)s MB or smaller (this file is "
+            "%(size)s MB).",
+            params={
+                "limit": MAX_PROFILE_IMAGE_BYTES // (1024 * 1024),
+                "size": round(size / (1024 * 1024), 1),
+            },
+            code="profile_image_too_large",
+        )
 
 
 class User(AbstractUser):
@@ -33,6 +71,15 @@ class User(AbstractUser):
         upload_to="profiles/",
         blank=True,
         null=True,
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=ALLOWED_PROFILE_IMAGE_EXTENSIONS,
+                message=(
+                    "Unsupported image format. Upload a JPEG, PNG or WebP file."
+                ),
+            ),
+            validate_profile_image_size,
+        ],
     )
     is_verified = models.BooleanField(_("verified"), default=False)
     created_at = models.DateTimeField(_("created at"), auto_now_add=True)

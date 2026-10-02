@@ -342,21 +342,34 @@ another tenant's record.
 | Platform-wide metrics | ❌ | ❌ | ✅ |
 | Moderate all feedback | ❌ | ❌ | ✅ |
 
-> **Privilege escalation is closed at registration.** Only `customer` and `staff` may
-> self-register through the public form. The `role` field is server-owned and read-only
-> on the wire; admin accounts exist only via the seed command or Django admin.
+> **Privilege escalation is closed at registration.** Public signup provisions a
+> `customer` account and nothing else — `role` is server-owned and assigned from a
+> constant in the form's `save()`, on both the HTML form and the REST API. Staff and
+> admin accounts exist only via the admin command centre, the Django admin, or the
+> seed commands.
 
 ### Demo Accounts
 
+`seed_demo` has no default password. Set `SEED_DEMO_PASSWORD` to any secret of your
+choosing (it is checked against the standard password policy) and all three accounts
+below get it:
+
 | Role | Email | Password | Lands on |
 | ---- | ----- | -------- | -------- |
-| 👤 Customer | `customer@servigo.com` | `customer12345` | Customer dashboard |
-| 🔧 Staff Technician | `staff@servigo.com` | `staff12345` | Staff dispatch queue |
-| 🛡️ Platform Admin | `admin@servigo.com` | `admin12345` | Admin aggregation hub |
+| 👤 Customer | `customer@servigo.com` | `$SEED_DEMO_PASSWORD` | Customer dashboard |
+| 🔧 Staff Technician | `staff@servigo.com` | `$SEED_DEMO_PASSWORD` | Staff dispatch queue |
+| 🛡️ Platform Admin | `admin@servigo.com` | `$SEED_DEMO_PASSWORD` | Admin aggregation hub |
 
 > ⚠️ **Demo credentials only.** These exist for local evaluation against a seeded
-> database. Any real deployment must rotate them and serve over HTTPS — bearer tokens
-> issued over plaintext are trivially interceptable.
+> database. Because every account shares one password, treat a real deployment as
+> compromised unless the accounts are rotated or created through the admin command
+> centre instead — and serve over HTTPS regardless, since bearer tokens issued over
+> plaintext are trivially interceptable.
+
+> ⚠️ **The variable is required, not optional.** With it unset, `seed_demo` exits with
+> an error rather than creating accounts behind a password written in the source.
+> `seed_production_data` behaves the same way unless you pass `--skip-users`, which is
+> the supported way to seed only the catalogue.
 
 ---
 
@@ -424,7 +437,9 @@ cp .env.example .env                 # macOS / Linux
 # copy .env.example .env             # Windows
 python -c "import secrets; print(secrets.token_urlsafe(50))"   # paste into SECRET_KEY
 
-# Create the database and seed demo accounts, services, stations and bookings
+# Create the database and seed demo accounts, services, stations and bookings.
+# SEED_DEMO_PASSWORD is required — the command refuses to invent a password.
+export SEED_DEMO_PASSWORD='choose-your-own-local-secret'
 python manage.py migrate
 python manage.py seed_demo
 

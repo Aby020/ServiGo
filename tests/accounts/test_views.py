@@ -18,7 +18,6 @@ class RegisterViewTests(TestCase):
         data = {
             "username": "newbie",
             "email": "newbie@example.com",
-            "role": "customer",
             "phone": "",
             "password1": PASSWORD,
             "password2": PASSWORD,
@@ -31,6 +30,14 @@ class RegisterViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "form")
 
+    def test_get_does_not_render_a_role_field(self):
+        # The template offered an "I am a…" dropdown. It must be gone from the
+        # page as well as the form — a hidden field would still be bound by a
+        # crafted POST, and a rendered one would be an invitation.
+        response = self.client.get(reverse("accounts:register"))
+        self.assertNotIn('name="role"', response.content.decode())
+        self.assertNotIn("form.role", response.content.decode())
+
     def test_post_creates_customer_and_redirects_to_login(self):
         response = self.client.post(
             reverse("accounts:register"), self.register_data()
@@ -40,15 +47,27 @@ class RegisterViewTests(TestCase):
         self.assertEqual(user.role, User.Role.CUSTOMER)
         self.assertTrue(CustomerProfile.objects.filter(user=user).exists())
 
-    def test_post_staff_role_creates_staff_profile(self):
+    def test_post_cannot_self_assign_the_staff_role(self):
+        """A crafted POST claiming `staff` still lands as a customer."""
         response = self.client.post(
             reverse("accounts:register"),
             self.register_data(role="staff"),
         )
         self.assertRedirects(response, reverse("accounts:login"))
         user = User.objects.get(email="newbie@example.com")
-        self.assertEqual(user.role, User.Role.STAFF)
-        self.assertTrue(StaffProfile.objects.filter(user=user).exists())
+        self.assertEqual(user.role, User.Role.CUSTOMER)
+        self.assertTrue(CustomerProfile.objects.filter(user=user).exists())
+        self.assertFalse(StaffProfile.objects.filter(user=user).exists())
+
+    def test_post_cannot_self_assign_the_admin_role(self):
+        response = self.client.post(
+            reverse("accounts:register"),
+            self.register_data(role="admin"),
+        )
+        user = User.objects.get(email="newbie@example.com")
+        self.assertEqual(user.role, User.Role.CUSTOMER)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
 
     def test_post_duplicate_email_rerenders_with_error(self):
         make_customer(email="newbie@example.com", username="existing")

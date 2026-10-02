@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import environ
 import dj_database_url
+import whitenoise
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -69,6 +70,13 @@ CRISPY_TEMPLATE_PACK = "bootstrap5"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Straight after SecurityMiddleware, which is where WhiteNoise's docs put
+    # it: it serves the compiled staticfiles from its own middleware and needs
+    # to sit above anything that could short-circuit a request, so a 404 for a
+    # missing asset is still answered by gunicorn rather than by the proxy.
+    # Without this, DEBUG=False serves no CSS or JS at all — Django's static
+    # view only answers requests when DEBUG is on.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -100,6 +108,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
+
+# Resets the rate-limiter cache between tests — see the module docstring in
+# config/test_runner.py for why that is not optional once throttling is on.
+TEST_RUNNER = "config.test_runner.ServiGoTestRunner"
 
 
 # Database
@@ -152,6 +164,23 @@ STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# WhiteNoise serves STATIC_ROOT directly and caches it under a hashed filename,
+# so a deploy is atomic: the old bundle keeps answering until the new one is
+# complete. `CompressedManifestStaticFilesStorage` additionally rewrites every
+# {% static %} reference to its hashed name, which is what stops a browser
+# from holding on to the previous deploy's CSS. It requires collectstatic to
+# have run, so it is only switched on outside DEBUG — a developer running
+# `runserver` reads straight from STATICFILES_DIRS and needs neither.
+if not DEBUG:
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
@@ -195,6 +224,15 @@ SERVER_EMAIL = env("SERVER_EMAIL", default=EMAIL_HOST_USER)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=SERVER_EMAIL)
 
 # Security settings for production
+#
+# `SECURE_PROXY_SSL_HEADER` is what makes the three below work at all behind
+# Render. Without it Django sees the request as plain http:// (the proxy
+# terminated TLS and reconnected over http), so SECURE_SSL_REDIRECT redirects
+# every page to https://… in a loop and SESSION_COOKIE_SECURE / CSRF_COOKIE_
+# SECURE refuse to set the cookies at all. Trusting the header is safe only
+# because Render strips any client-supplied X-Forwarded-Proto.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
@@ -213,12 +251,34 @@ AUTH_USER_MODEL = "accounts.User"
 AUTHENTICATION_BACKENDS = ["accounts.backends.EmailOrUsernameBackend"]
 
 # Caching
+#
+# The login/registration rate limiter and DRF's throttles both count against the
+# default cache, so it has to be one the whole application agrees on. LocMem is
+# per-process and resets on every restart, which is fine for the single gunicorn
+# worker a free Render service runs and would be wrong for anything larger —
+# swap in Redis before scaling out, or the limits become per-worker and a
+# multi-worker deploy is effectively unthrottled.
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "BACKEND": env(
+            "CACHE_BACKEND",
+            default="django.core.cache.backends.locmem.LocMemCache",
+        ),
         "LOCATION": "unique-snowflake",
     }
 }
+
+# ── HTML auth rate limiting ───────────────────────────────────────────────────
+# The REST API is throttled by DRF; these two views render HTML and so sit
+# outside that machinery entirely. Without their own limiter the login form is
+# the one endpoint a password-guessing run can hammer freely, which is why
+# `accounts.views` applies the same counter by hand.
+LOGIN_RATE_LIMIT = env.int("LOGIN_RATE_LIMIT", default=10)
+LOGIN_RATE_WINDOW_SECONDS = env.int("LOGIN_RATE_WINDOW_SECONDS", default=300)
+REGISTER_RATE_LIMIT = env.int("REGISTER_RATE_LIMIT", default=5)
+REGISTER_RATE_WINDOW_SECONDS = env.int(
+    "REGISTER_RATE_WINDOW_SECONDS", default=3600
+)
 
 # Messages framework
 from django.contrib.messages import constants as messages
@@ -249,6 +309,19 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 ]
 
 # ── Django REST Framework ─────────────────────────────────────────────────────
+#
+# Throttles are deliberately on by default rather than opt-in per view: the
+# endpoints worth rate limiting are the ones that authenticate (`/api/auth/
+# login/`, `/api/auth/register/`), and a view-level omission is the kind of
+# thing that only shows up as a brute-force success after the fact. A view that
+# legitimately needs to be unbounded sets `throttle_classes = []` explicitly,
+# which is a visible decision rather than a silent one.
+#
+# Anonymous callers are held to the tighter budget because they are the ones a
+# credential-stuffing run comes from — 20 a minute is generous for reading the
+# public catalogue and useless for trying thousands of passwords. Authenticated
+# callers get more headroom because a signed-in customer browsing their own
+# bookings issues a burst of requests by design.
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -256,6 +329,14 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": env("ANON_THROTTLE_RATE", default="20/min"),
+        "user": env("USER_THROTTLE_RATE", default="60/min"),
+    },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 

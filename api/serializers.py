@@ -8,7 +8,8 @@ from decimal import Decimal
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import F
+from django.db.models import F, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 from rest_framework import exceptions, serializers
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -1079,6 +1080,43 @@ def build_slot_grid(
     return slots
 
 
+def count_active_bookings_overlapping(
+    station: EVChargingStation,
+    date,
+    start_time,
+    end_time,
+    exclude_booking_id=None,
+) -> int:
+    """
+    Active reservations at `station` whose window overlaps the one given.
+
+    Overlap, not equality: a booking from 10:00 to 11:30 blocks 10:30 even
+    though 10:30 is not its own ``start_time``. The window is half-open — a
+    booking ending exactly at 10:00 does not conflict with one starting at
+    10:00, which is what lets a station hand the same bay to back-to-back
+    sessions.
+
+    This is the authoritative occupancy check. ``EVChargingStation.
+    available_ports`` is a single number for the whole station and is only ever
+    decremented on creation, so it drifts permanently once a booking is
+    cancelled or completed out of band: the counter says a bay is held when no
+    live reservation covers the requested window, and — worse, on a multi-day
+    horizon — it says every bay is taken once *any* window anywhere is booked.
+    Counting the bookings that actually cover this window is the only figure
+    that means anything.
+    """
+    overlapping = EVChargingBooking.objects.filter(
+        station=station,
+        booking_date=date,
+        status__in=ACTIVE_BOOKING_STATUSES,
+        start_time__lt=end_time,
+        end_time__gt=start_time,
+    )
+    if exclude_booking_id is not None:
+        overlapping = overlapping.exclude(pk=exclude_booking_id)
+    return overlapping.count()
+
+
 def ev_decimal_field(**kwargs) -> serializers.DecimalField:
     """
     A DecimalField that serialises as a JSON number, not a string.
@@ -1424,16 +1462,25 @@ class EVBookingCreateSerializer(serializers.Serializer):
         station = self._station
         slot = self._slot
 
-        if not slot["is_available"]:
+        # Authoritative occupancy check against the requested window. The grid's
+        # own `is_available` / `available_ports` are derived from the station's
+        # global counter, which goes stale; recounting the live reservations is
+        # what actually answers "is there a free bay at this time".
+        occupied = count_active_bookings_overlapping(
+            station,
+            self._local_slot.date(),
+            slot["start"],
+            slot["end"],
+        )
+        free = station.total_ports - occupied
+        if free <= 0:
             raise serializers.ValidationError(
-                {"slot_time": "That bay is already reserved. Pick another window."}
-            )
-
-        # The grid already encodes port pressure, so this only trips when the
-        # station drained between the grid being built and the write landing.
-        if station.available_ports <= 0:
-            raise serializers.ValidationError(
-                {"station_id": "Every bay at this station is currently reserved."}
+                {
+                    "slot_time": (
+                        f"All {station.total_ports} bays are reserved for this "
+                        f"window. Pick another time or another station."
+                    )
+                }
             )
 
         # `build_slot_grid` only emits windows inside operating hours, but a
@@ -1480,24 +1527,21 @@ class EVBookingCreateSerializer(serializers.Serializer):
             confirmed_at=timezone.now(),
         )
 
-        # Reserve the bay by decrementing the station's free-port count. The
-        # station is a plain counter, not a `select_for_update` inventory, so
-        # this is guarded rather than transactional — F() keeps the decrement
-        # atomic at the database level and `available_ports__gt=0` makes the
-        # UPDATE itself the guard, which is what stops two concurrent requests
-        # from both claiming the last bay.
-        held = (
-            EVChargingStation.objects.filter(pk=station.pk, available_ports__gt=0)
-            .update(available_ports=F("available_ports") - 1)
+        # The station's free-port counter is a *display* figure, decremented
+        # here and incremented again by `EVBookingCancelView`. Validation above
+        # already decided whether a bay was free, by counting live reservations
+        # for this window, and it must keep that answer even if the counter has
+        # drifted to zero in the meantime — otherwise a completed booking that
+        # nobody cancelled (so the counter was never incremented) would make the
+        # station permanently unbookable.
+        #
+        # Clamped at zero so the figure cannot go negative — `max(n - 1, 0)`, not
+        # `min(n - 1, 0)`, which would decrement first and only then clamp.
+        # `Greatest` is evaluated by the database, so this stays atomic under
+        # concurrency rather than reading-then-writing the column.
+        EVChargingStation.objects.filter(pk=station.pk).update(
+            available_ports=Greatest(F("available_ports") - 1, Value(0))
         )
-        if not held:
-            # Lost the race for the last bay. The booking row is already
-            # written, so it has to be undone rather than left as a phantom
-            # reservation against a station that has nothing left.
-            booking.delete()
-            raise serializers.ValidationError(
-                {"station_id": "Every bay at this station was just reserved. Try another station."}
-            )
 
         station.refresh_from_db(fields=["available_ports"])
         return booking

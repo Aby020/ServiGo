@@ -20,7 +20,9 @@ from decimal import Decimal
 from datetime import time
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from ev_charging.models import EVChargingStation
@@ -381,12 +383,17 @@ STATIONS = [
     },
 ]
 
-# Demo accounts for the three roles the dashboards are built around. Render
-# sets these from the environment; the fallback keeps a fresh local database
-# usable. See the note on the password below before exposing any of this
-# publicly.
+# Demo accounts for the three roles the dashboards are built around.
+#
+# The password is never defined here. An earlier version fell back to a literal
+# in this file, which meant every deployment that did not set the variable got
+# three working accounts — including an admin — behind a password published in
+# the repository. A silent fallback is the worst of both worlds: it looks like
+# the command worked, so nobody notices until someone guesses
+# `admin@servigo.com` / the literal. The command now refuses to create users at
+# all unless the operator has supplied their own, and `--skip-users` is the
+# supported way to seed the catalogue alone.
 DEMO_PASSWORD_ENV = "SEED_DEMO_PASSWORD"
-DEMO_PASSWORD_FALLBACK = "ServiGo@2024"
 
 USERS = [
     {
@@ -523,14 +530,31 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("  ! skipped   demo user accounts (--skip-users)"))
             return []
 
-        password = os.environ.get(DEMO_PASSWORD_ENV) or DEMO_PASSWORD_FALLBACK
-        if password == DEMO_PASSWORD_FALLBACK:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"  ! {DEMO_PASSWORD_ENV} is unset - demo accounts get the "
-                    f"built-in default password."
-                )
+        password = (os.environ.get(DEMO_PASSWORD_ENV) or "").strip()
+        if not password:
+            # Raised, not warned: half-created demo accounts are worse than none,
+            # because the next run reports them as "existing" and never revisits
+            # the decision. Fail the build loudly instead — the catalogue is
+            # already seeded by this point, so re-running with the variable set
+            # (or with --skip-users) is safe and idempotent.
+            raise CommandError(
+                f"{DEMO_PASSWORD_ENV} is not set, so no demo accounts will be "
+                f"created. There is deliberately no default password. Set "
+                f"{DEMO_PASSWORD_ENV} to a secret of your choosing, or re-run "
+                f"with --skip-users to seed only categories, services and "
+                f"stations."
             )
+        try:
+            # The seed sets no user context to compare against, so this is the
+            # policy minus similarity — length, commonality, all-numeric. An
+            # operator who sets a three-character password has not read the
+            # deployment docs, and this is the last place to catch it.
+            validate_password(password)
+        except ValidationError as exc:
+            raise CommandError(
+                f"{DEMO_PASSWORD_ENV} does not meet the password policy: "
+                + " ".join(exc.messages)
+            ) from exc
 
         seeded = []
         for data in USERS:

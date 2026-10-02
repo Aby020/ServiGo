@@ -3,18 +3,33 @@ Forms for accounts app.
 """
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from .models import User, StaffProfile, CustomerProfile
+from .models import (
+    ALLOWED_PROFILE_IMAGE_EXTENSIONS,
+    User,
+    StaffProfile,
+    CustomerProfile,
+    validate_profile_image_size,
+)
 
 
 class UserRegistrationForm(UserCreationForm):
-    """Form for user registration."""
+    """
+    Form for public user registration.
 
-    # Roles a member of the public may self-select on signup. Admin is
-    # deliberately excluded: admin accounts are created through the seed
-    # command or the Django admin, never by public self-registration.
-    PUBLIC_ROLE_CHOICES = [
-        choice for choice in User.Role.choices if choice[0] != User.Role.ADMIN
-    ]
+    Privilege guard
+    ---------------
+    There is no ``role`` field. Self-registration provisions exactly one kind of
+    account — a customer — and the role is assigned from the constant in
+    :meth:`save` rather than from any submitted value. An earlier version
+    offered a dropdown, which meant anyone could POST ``role=staff`` and land on
+    the technician dashboard; the dropdown also existed in the template, so
+    removing the widget alone would not have closed it.
+
+    Technicians and admins are provisioned by an admin
+    (``api.views.AdminStaffCreateSerializer``, the Django admin, or the seed
+    commands), never by the public signup form. The REST equivalent,
+    ``api.serializers.RegisterSerializer``, hardcodes the role the same way.
+    """
 
     email = forms.EmailField(
         required=True,
@@ -44,11 +59,6 @@ class UserRegistrationForm(UserCreationForm):
             "placeholder": "Confirm your password",
         })
     )
-    role = forms.ChoiceField(
-        choices=PUBLIC_ROLE_CHOICES,
-        initial=User.Role.CUSTOMER,
-        widget=forms.Select(attrs={"class": "form-select"}),
-    )
     phone = forms.CharField(
         required=False,
         widget=forms.TextInput(attrs={
@@ -59,7 +69,7 @@ class UserRegistrationForm(UserCreationForm):
 
     class Meta:
         model = User
-        fields = ("username", "email", "role", "phone", "password1", "password2")
+        fields = ("username", "email", "phone", "password1", "password2")
 
     def clean_email(self):
         email = self.cleaned_data.get("email")
@@ -70,15 +80,12 @@ class UserRegistrationForm(UserCreationForm):
     def save(self, commit=True):
         user = super().save(commit=False)
         user.email = self.cleaned_data["email"]
-        user.role = self.cleaned_data["role"]
+        # Server-assigned, never client-influenced. See the class docstring.
+        user.role = User.Role.CUSTOMER
         user.phone = self.cleaned_data["phone"]
         if commit:
             user.save()
-            # Create appropriate profile
-            if user.role == User.Role.CUSTOMER:
-                CustomerProfile.objects.get_or_create(user=user)
-            elif user.role == User.Role.STAFF:
-                StaffProfile.objects.get_or_create(user=user)
+            CustomerProfile.objects.get_or_create(user=user)
         return user
 
 
@@ -117,8 +124,28 @@ class UserProfileForm(forms.ModelForm):
             "city": forms.TextInput(attrs={"class": "form-control", "placeholder": "City"}),
             "state": forms.TextInput(attrs={"class": "form-control", "placeholder": "State"}),
             "pincode": forms.TextInput(attrs={"class": "form-control", "placeholder": "PIN code"}),
-            "profile_image": forms.FileInput(attrs={"class": "form-control"}),
+            "profile_image": forms.FileInput(attrs={
+                "class": "form-control",
+                "accept": ",".join(
+                    f".{ext}" for ext in ALLOWED_PROFILE_IMAGE_EXTENSIONS
+                ),
+            }),
         }
+
+    def clean_profile_image(self):
+        """
+        Reject an oversized upload, and say so on the field.
+
+        The same rule is a model validator (so the admin and any direct
+        construction are covered too), but a ModelForm's model validation
+        reports through ``non_field_errors`` — the message would render in the
+        summary block with no indication that the picture was the problem.
+        Running it here as well puts the error on the file input itself.
+        """
+        image = self.cleaned_data.get("profile_image")
+        if image:
+            validate_profile_image_size(image)
+        return image
 
     def clean_email(self):
         email = self.cleaned_data.get("email")

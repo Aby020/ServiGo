@@ -9,7 +9,7 @@ from accounts.forms import (
     UserProfileForm,
     UserRegistrationForm,
 )
-from accounts.models import CustomerProfile, StaffProfile
+from accounts.models import CustomerProfile, StaffProfile, User
 from tests.accounts.factories import make_user
 
 
@@ -17,7 +17,6 @@ class UserRegistrationFormTests(TestCase):
     VALID_DATA = {
         "username": "newbie",
         "email": "newbie@example.com",
-        "role": "customer",
         "phone": "9876543210",
         "password1": "Strongpass123!",
         "password2": "Strongpass123!",
@@ -28,17 +27,33 @@ class UserRegistrationFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         user = form.save()
         self.assertEqual(user.email, "newbie@example.com")
-        self.assertEqual(user.role, "customer")
+        self.assertEqual(user.role, User.Role.CUSTOMER)
         self.assertEqual(user.phone, "9876543210")
         self.assertTrue(CustomerProfile.objects.filter(user=user).exists())
 
-    def test_staff_registration_creates_staff_profile(self):
-        data = {**self.VALID_DATA, "role": "staff"}
-        form = UserRegistrationForm(data=data)
+    def test_role_is_not_a_form_field(self):
+        # The field is gone rather than hidden or defaulted, so there is
+        # nothing in the rendered form for a client to bind a value to.
+        self.assertNotIn("role", UserRegistrationForm().fields)
+
+    def test_submitted_role_is_ignored(self):
+        """A crafted POST claiming `staff` still yields a customer."""
+        form = UserRegistrationForm(
+            data={**self.VALID_DATA, "role": User.Role.STAFF}
+        )
         self.assertTrue(form.is_valid(), form.errors)
         user = form.save()
-        self.assertEqual(user.role, "staff")
-        self.assertTrue(StaffProfile.objects.filter(user=user).exists())
+        self.assertEqual(user.role, User.Role.CUSTOMER)
+        self.assertTrue(CustomerProfile.objects.filter(user=user).exists())
+        self.assertFalse(StaffProfile.objects.filter(user=user).exists())
+
+    def test_submitted_admin_role_is_ignored(self):
+        form = UserRegistrationForm(
+            data={**self.VALID_DATA, "role": User.Role.ADMIN}
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+        self.assertEqual(user.role, User.Role.CUSTOMER)
 
     def test_duplicate_email_rejected(self):
         make_user(email="newbie@example.com", username="existing")
@@ -51,12 +66,6 @@ class UserRegistrationFormTests(TestCase):
         form = UserRegistrationForm(data=data)
         self.assertFalse(form.is_valid())
         self.assertIn("password2", form.errors)
-
-    def test_role_required(self):
-        data = {**self.VALID_DATA, "role": ""}
-        form = UserRegistrationForm(data=data)
-        self.assertFalse(form.is_valid())
-        self.assertIn("role", form.errors)
 
 
 class UserProfileFormTests(TestCase):

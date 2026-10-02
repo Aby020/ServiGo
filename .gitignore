@@ -59,3 +59,9 @@ CLAUDE.md
 
 # Partial download artifacts
 *.tmp
+
+# Local Claude Code launcher (personal, machine-specific)
+cc.bat
+
+# brag skill render output — local artifacts, never commit
+brag-output-*/

@@ -12,11 +12,20 @@ Creates:
 Usage:
     python manage.py seed_demo
     python manage.py seed_demo --reset      # wipe existing data first
+
+Account passwords come from ``SEED_DEMO_PASSWORD`` and have no default. This
+command used to write `admin12345` and friends, which made it trivially easy to
+run it against a production database and end up with a known admin login. If the
+variable is unset the command refuses to create users at all — see
+`_resolve_password`.
 """
+import os
 from datetime import time, timedelta
 from decimal import Decimal
 
-from django.core.management.base import BaseCommand
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from accounts.models import CustomerProfile, StaffProfile, User
@@ -24,6 +33,10 @@ from bookings.models import Booking, BookingStatusHistory
 from core.models import SiteSettings
 from ev_charging.models import EVChargingBooking, EVChargingStation
 from services.models import Service, ServiceCategory
+
+
+#: Environment variable holding the password given to every demo account.
+PASSWORD_ENV = "SEED_DEMO_PASSWORD"
 
 
 class Command(BaseCommand):
@@ -37,6 +50,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Resolved before anything is written, so a missing variable fails the
+        # command outright rather than leaving a catalogue with no accounts
+        # behind it.
+        password = self._resolve_password()
+
         if options["reset"]:
             self.stdout.write(self.style.WARNING("Resetting existing data..."))
             EVChargingBooking.objects.all().delete()
@@ -49,7 +67,7 @@ class Command(BaseCommand):
 
         self.stdout.write("Seeding ServiGo demo data...")
         self._seed_site_settings()
-        users = self._seed_users()
+        users = self._seed_users(password)
         categories = self._seed_categories()
         services = self._seed_services(categories)
         stations = self._seed_stations()
@@ -57,11 +75,38 @@ class Command(BaseCommand):
         self._seed_ev_bookings(users, stations)
 
         self.stdout.write(self.style.SUCCESS("Done! Demo accounts:"))
-        self.stdout.write("  Admin:    admin@servigo.com   / admin12345")
-        self.stdout.write("  Staff:    staff@servigo.com   / staff12345")
-        self.stdout.write("  Customer: customer@servigo.com / customer12345")
+        self.stdout.write(f"  Admin:    admin@servigo.com   / {PASSWORD_ENV}")
+        self.stdout.write(f"  Staff:    staff@servigo.com   / {PASSWORD_ENV}")
+        self.stdout.write(f"  Customer: customer@servigo.com / {PASSWORD_ENV}")
 
     # --------------------------------------------------------------
+
+    def _resolve_password(self):
+        """
+        Read the demo password from the environment, or refuse to run.
+
+        A one-line `os.environ.get(NAME, "admin12345")` is what this replaced.
+        The literal is the problem, not the feature: it is a password committed
+        to a public repository, and the command has no way of telling a laptop
+        from a production database. Making it a required variable moves the
+        decision to whoever runs the command, where it belongs.
+        """
+        password = (os.environ.get(PASSWORD_ENV) or "").strip()
+        if not password:
+            raise CommandError(
+                f"{PASSWORD_ENV} is not set. There is no default demo password — "
+                f"set it to any secret of your choosing and re-run:\n\n"
+                f"    {PASSWORD_ENV}='your-password-here' "
+                f"python manage.py seed_demo\n"
+            )
+        try:
+            validate_password(password)
+        except ValidationError as exc:
+            raise CommandError(
+                f"{PASSWORD_ENV} does not meet the password policy: "
+                + " ".join(exc.messages)
+            ) from exc
+        return password
 
     def _seed_site_settings(self):
         settings, _ = SiteSettings.objects.get_or_create(
@@ -82,7 +127,14 @@ class Command(BaseCommand):
         self.stdout.write("  [OK] Site settings")
         return settings
 
-    def _seed_users(self):
+    def _seed_users(self, password):
+        """
+        Every demo account shares `password`, supplied by the operator.
+
+        Taken as an argument rather than read from the environment again so
+        there is one place the requirement is enforced — `_resolve_password` —
+        and no caller can reach this method with a password that skipped it.
+        """
         users = {}
 
         # Admin
@@ -97,7 +149,7 @@ class Command(BaseCommand):
             admin.is_staff = True
             admin.is_superuser = True
             admin.is_verified = True
-            admin.set_password("admin12345")
+            admin.set_password(password)
             admin.save()
             self.stdout.write("  [OK] Admin user")
 
@@ -118,7 +170,7 @@ class Command(BaseCommand):
                 user.phone = f"+91 90000 0000{i + 1}"
                 user.city = ["Bengaluru", "Kochi", "Hyderabad"][i - 1]
                 user.is_verified = True
-                user.set_password("staff12345")
+                user.set_password(password)
                 user.save()
                 StaffProfile.objects.update_or_create(
                     user=user,
@@ -156,7 +208,7 @@ class Command(BaseCommand):
                 user.state = "India"
                 user.pincode = "560001"
                 user.address = f"House No. {i * 12}, Main Road, {city}"
-                user.set_password("customer12345")
+                user.set_password(password)
                 user.save()
                 CustomerProfile.objects.update_or_create(
                     user=user,
@@ -324,9 +376,17 @@ class Command(BaseCommand):
 
         booking_data = [
             # (service, days_offset, date_time, status, assigned_staff_index)
+            #
+            # The statuses follow the model's own lifecycle, which has no
+            # `confirmed` value: a job goes pending → claimed → accepted →
+            # arrived → in_progress → completed. `accepted` stands in here for
+            # "dispatched but not started", and it is a real state this command
+            # can now reach — the previous `Booking.Status.CONFIRMED` did not
+            # exist and raised AttributeError, so the command could not
+            # complete a successful run at all.
             (services[0], 0, time(10, 0), Booking.Status.COMPLETED, 0),
             (services[4], -1, time(14, 0), Booking.Status.COMPLETED, 1),
-            (services[7], 1, time(11, 0), Booking.Status.CONFIRMED, 2),
+            (services[7], 1, time(11, 0), Booking.Status.ACCEPTED, 2),
             (services[1], 2, time(16, 0), Booking.Status.PENDING, None),
             (services[5], 3, time(9, 30), Booking.Status.PENDING, None),
         ]

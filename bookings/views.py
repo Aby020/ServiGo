@@ -181,6 +181,31 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         return self.request.user.is_staff_user or self.request.user.is_admin_user
 
 
+def staff_assignable_bookings(user):
+    """
+    The bookings a member of staff is allowed to see.
+
+    A technician sees their own jobs plus the unassigned queue they can claim
+    from — never another technician's work, which carries the customer's name,
+    phone number and address. Admins see everything: they run the dispatch desk
+    and are the ones who reassign jobs, so narrowing their view would leave them
+    unable to fix a misassignment.
+
+    Both staff views and the list this backs are defined in terms of this one
+    function. They used to each carry their own copy, and the detail view had
+    none at all — which meant a technician could open `/bookings/staff/<pk>/`
+    for any id, read a customer's contact details and drive the booking through
+    the lifecycle with a plain form POST. The filter is what makes the detail
+    URL mean the same thing as the list it was reached from.
+    """
+    queryset = Booking.objects.select_related("customer", "assigned_staff")
+    if user.is_staff_user:
+        return queryset.filter(
+            Q(assigned_staff=user) | Q(assigned_staff__isnull=True)
+        )
+    return queryset
+
+
 class StaffBookingListView(StaffRequiredMixin, ListView):
     """Staff view of all bookings."""
     model = Booking
@@ -189,18 +214,12 @@ class StaffBookingListView(StaffRequiredMixin, ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        queryset = Booking.objects.all().select_related("customer", "assigned_staff")
+        queryset = staff_assignable_bookings(self.request.user)
 
         # Filter by status
         status = self.request.GET.get("status")
         if status:
             queryset = queryset.filter(status=status)
-
-        # Filter by assigned staff
-        if self.request.user.is_staff_user:
-            queryset = queryset.filter(
-                Q(assigned_staff=self.request.user) | Q(assigned_staff__isnull=True)
-            )
 
         # Search
         query = self.request.GET.get("q")
@@ -227,6 +246,14 @@ class StaffBookingDetailView(StaffRequiredMixin, DetailView):
     model = Booking
     template_name = "bookings/staff_detail.html"
     context_object_name = "booking"
+
+    def get_queryset(self):
+        # The whole point of this override: a technician reaching the detail URL
+        # by guessing an id gets a 404, exactly as if the booking did not
+        # exist. It covers the POST too — `post()` calls `self.get_object()`,
+        # so a status change on someone else's job is refused at the same
+        # place a read of it is.
+        return staff_assignable_bookings(self.request.user)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
