@@ -7,6 +7,14 @@
     <meta name="description" content="{% block meta_description %}ServiGo - Your trusted partner for home services, electrical work, plumbing, Smart TV installation, and EV charging stations{% endblock %}">
     <title>{% block title %}ServiGo - Home Services & EV Charging{% endblock %}</title>
 
+    <!-- Favicon: the blue wrench mark from the navbar. SVG first so it stays
+         crisp, with .ico/.png fallbacks for browsers that ignore SVG icons.
+         /favicon.ico is redirected in config/urls.py for direct address-bar hits. -->
+    <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+    <link rel="icon" type="image/png" sizes="512x512" href="{% static 'images/favicon.png' %}">
+    <link rel="alternate icon" href="{% static 'images/favicon.ico' %}">
+    <link rel="apple-touch-icon" href="{% static 'images/apple-touch-icon.png' %}">
+
     <!-- Preconnect for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="ServiGo">
+  <!-- Same mark as templates/partials/navbar.html: blue tile, white wrench. -->
+  <rect width="64" height="64" rx="8" fill="#3b82f6"/>
+  <path d="M38.933 20.267a5.333 5.333 0 0 0 0 7.467l4.267 4.266a5.333 5.333 0 0 0 7.466 0l8.283-8.282a2.622 2.622 0 0 0 2.622-2.624 16 16 0 0 1-22.023 18.816l-21.09 21.091a7.999 7.999 0 0 1-11.314-11.313l21.09-21.091a16 16 0 0 1 18.816-22.023 2.622 2.622 0 0 0 1.171 2.624z" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

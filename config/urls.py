@@ -15,19 +15,40 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
+from urllib.parse import urljoin
+
 from django.contrib import admin
+from django.contrib.staticfiles.storage import staticfiles_storage
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponsePermanentRedirect
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
 
+
+def favicon_redirect(request):
+    """Answer the bare `/favicon.ico` that browsers request unprompted.
+
+    Resolved per request rather than at import time for two reasons:
+    STATIC_URL is relative in this project ("static/"), so the target has to be
+    made absolute against the current host, and `staticfiles_storage` is what
+    knows the hashed filename under the production manifest storage backend.
+    """
+    target = urljoin(f"{request.scheme}://{request.get_host()}/", staticfiles_storage.url("images/favicon.ico"))
+    return HttpResponsePermanentRedirect(target)
+
+
 urlpatterns = [
     # Admin
     path("admin/", admin.site.urls),
+
+    # Browsers request this path directly, so it must be declared before the
+    # catch-all core:home route below.
+    path("favicon.ico", favicon_redirect),
 
     # REST API
     path("api/", include("api.urls")),
